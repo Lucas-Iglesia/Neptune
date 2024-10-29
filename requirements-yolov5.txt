@@ -1,0 +1,13 @@
+torch
+torchvision
+pandas
+requests
+tqdm
+pyyaml
+matplotlib
+seaborn
+scipy
+protobuf
+tensorboard
+ipython
+psutil
