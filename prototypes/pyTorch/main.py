@@ -12,11 +12,9 @@ transform = transforms.Compose([
 ])
 
 def is_in_water(box, water_region):
-    # box = [x_min, y_min, x_max, y_max] of the person
     person_y_center = (box[1] + box[3]) / 2
     return person_y_center >= water_region
 
-# Lire la vidéo avec OpenCV
 cap = cv2.VideoCapture('videos/v.mp4')
 
 while cap.isOpened():
