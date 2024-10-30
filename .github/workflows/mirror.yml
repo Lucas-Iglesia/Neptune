@@ -47,3 +47,11 @@ jobs:
         run: |
           git push mirror ${{ github.ref_name }} --force
           git push mirror --tags
+
+      - name: Debug - Show Git status
+        run: |
+          git status
+
+      - name: Debug - Show Git log
+        run: |
+          git log -3
