@@ -35,7 +35,7 @@ jobs:
           git remote add dest $DEST_REPO
           git fetch dest
           git checkout ${{ github.ref_name }}
-          git pull dest ${{ github.ref_name }}
+          git pull dest ${{ github.ref_name }} --allow-unrelated-histories
 
       - name: Sync current branch
         env:
