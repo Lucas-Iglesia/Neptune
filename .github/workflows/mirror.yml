@@ -31,5 +31,5 @@ jobs:
       - name: Push to mirror repository
         run: |
           cd source
-          git remote add mirror https://github.com/ArielChambaz/G-EIP-700-REN-7-1-eip-adrien.picot.git
+          git remote add mirror https://github.com/EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot
           git push mirror ${{ github.ref }} --force 
