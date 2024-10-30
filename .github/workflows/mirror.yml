@@ -12,7 +12,7 @@ jobs:
       - name: Checkout source repository
         uses: actions/checkout@v2
         with:
-          repository: ArielChambaz/Neptune
+          repository: https://github.com/ArielChambaz/Neptune
           ref: ${{ github.ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
           path: source
@@ -26,7 +26,7 @@ jobs:
       - name: Remove .github directory for mirroring
         run: |
           cd source
-          rm -rf .github  # Supprime le répertoire .github pour le push vers le miroir
+          rm -rf .github
 
       - name: Push to mirror repository
         run: |
