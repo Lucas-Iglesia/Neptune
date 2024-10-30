@@ -37,9 +37,14 @@ jobs:
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
 
+      - name: Clean up Git environment
+        run: |
+          git remote remove mirror || true
+          git gc --prune=now
+          git remote add mirror git@github.com:EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git
+
       - name: Pull from mirror repository
         run: |
-          git remote add mirror git@github.com:EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git
           git fetch mirror
           git merge --allow-unrelated-histories --strategy-option theirs mirror/${{ github.ref_name }}
 
