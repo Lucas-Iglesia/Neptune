@@ -29,6 +29,11 @@ jobs:
           cd source
           rm -rf .github
 
+      - name: Check git status
+        run: |
+          cd source
+          git status
+
       - name: Mirror to another repository
         run: |
           cd source
