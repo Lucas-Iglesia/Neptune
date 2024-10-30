@@ -37,7 +37,7 @@ jobs:
         run: |
           git remote remove mirror || true
           git gc --prune=now
-          git remote add mirror https://${{ secrets.PERSONAL_ACCESS_TOKEN }}@github.com/EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git
+          git remote add mirror git@github.com:EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git
 
       - name: Debug - Show Git remotes
         run: |
