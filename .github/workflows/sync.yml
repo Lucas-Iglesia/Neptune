@@ -22,11 +22,6 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan github.com >> ~/.ssh/known_hosts
 
-      - name: Configure Git
-        run: |
-          git config --global user.email "you@example.com"
-          git config --global user.name "Your Name"
-
       - name: Sync current branch
         env:
           DEST_REPO: git@github.com:EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git
