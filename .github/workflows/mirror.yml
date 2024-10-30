@@ -14,11 +14,11 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Push to the target repository
-      env:
-        TARGET_REPO: ${{ secrets.TARGET_REPO }}  # Ajoute l'URL du dépôt cible dans les secrets
-        TARGET_TOKEN: ${{ secrets.TARGET_TOKEN }}  # Ajoute le token d'accès personnel dans les secrets
-      run: |
-        git remote remove target || true  # Supprime le remote s'il existe
-        git remote add target $TARGET_REPO
-        git push target HEAD:refs/heads/${{ github.ref }} --force  # Pousse vers la même branche sur le dépôt cible
-
+      - name: Push to the target repository
+        env:
+          TARGET_REPO: ${{ secrets.TARGET_REPO }}  # Ajoute l'URL du dépôt cible dans les secrets
+          TARGET_TOKEN: ${{ secrets.TARGET_TOKEN }}  # Ajoute le token d'accès personnel dans les secrets
+        run: |
+          git remote remove target || true  # Supprime le remote s'il existe
+          git remote add target $TARGET_REPO
+          git push target HEAD:refs/heads/${{ github.ref }} --force  # Pousse vers la même branche sur le dépôt cible
