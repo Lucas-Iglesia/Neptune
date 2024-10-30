@@ -39,6 +39,11 @@ jobs:
           git gc --prune=now
           git remote add mirror git@github.com:EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git
 
+      - name: Fetch and integrate changes from origin
+        run: |
+          git fetch origin
+          git pull origin ${{ github.ref_name }} --rebase
+
       - name: Pull from mirror repository
         run: |
           git fetch mirror
