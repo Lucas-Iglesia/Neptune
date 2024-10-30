@@ -37,8 +37,14 @@ jobs:
           git checkout ${{ github.ref_name }}
           git pull dest ${{ github.ref_name }} --allow-unrelated-histories
 
+      - name: Remove .github directory
+        run: |
+          rm -rf .github
+
       - name: Sync current branch
         env:
           DEST_REPO: git@github.com:EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git
         run: |
-          git push $DEST_REPO ${{ github.ref_name }} --force-with-lease
+          git add -A
+          git commit -m "Sync changes"
+          git push $DEST_REPO ${{ github.ref_name }} --force
