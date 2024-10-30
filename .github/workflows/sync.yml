@@ -3,7 +3,7 @@ name: Mirror Repository
 on:
   push:
     branches:
-      - '*'
+      - '**'
 
 jobs:
   mirror:
@@ -28,8 +28,13 @@ jobs:
         run: |
           rm -rf .github
 
-      - name: Push to mirror repository
+      - name: Pull from mirror repository
         run: |
           git remote add mirror git@github.com:EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git
-          git push mirror --all
+          git fetch mirror
+          git pull mirror ${{ github.ref_name }} --allow-unrelated-histories
+
+      - name: Push to mirror repository
+        run: |
+          git push mirror ${{ github.ref_name }} --force
           git push mirror --tags
