@@ -15,8 +15,8 @@ jobs:
 
       - name: Push to the target repository
         env:
-          TARGET_REPO: ${{ secrets.TARGET_REPO }} 
+          TARGET_REPO: https://github.com/EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot
           TARGET_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }} 
         run: |
-          git remote add target $TARGET_REPO
+          git remote add target https://github.com/EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot
           git push target HEAD:refs/heads/${{ github.ref }} --force  # Pousse vers la même branche sur le dépôt cible
