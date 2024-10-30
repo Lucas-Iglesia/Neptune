@@ -51,16 +51,21 @@ jobs:
       - name: Pull from mirror repository
         run: |
           git fetch mirror
-          git reset --hard mirror/${{ github.ref_name }}
+          git reset --hard mirror/main
 
       - name: Apply stashed changes if any
         if: success()
         run: |
           git stash pop || true  # Applique le stash seulement s'il existe
 
+      - name: Ensure branch alignment with origin
+        run: |
+          git fetch origin
+          git reset --hard origin/main
+
       - name: Push to mirror repository
         run: |
-          git push mirror ${{ github.ref_name }} --force
+          git push mirror main --force
           git push mirror --tags
 
       - name: Debug - Show Git status
