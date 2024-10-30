@@ -39,15 +39,24 @@ jobs:
           git gc --prune=now
           git remote add mirror git@github.com:EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git
 
+      - name: Stash local changes to clean working directory
+        run: |
+          git stash --include-untracked
+
       - name: Fetch and integrate changes from origin
         run: |
           git fetch origin
-          git pull origin ${{ github.ref_name }} --rebase
+          git pull origin main --rebase
 
       - name: Pull from mirror repository
         run: |
           git fetch mirror
           git reset --hard mirror/${{ github.ref_name }}
+
+      - name: Apply stashed changes if any
+        if: success()
+        run: |
+          git stash pop || true  # Applique le stash seulement s'il existe
 
       - name: Push to mirror repository
         run: |
