@@ -63,10 +63,20 @@ jobs:
           git fetch origin
           git reset --hard origin/main
 
-      - name: Push to mirror repository
+      - name: Clean Git to prevent corruption issues
+        run: |
+          git reflog expire --expire=now --all
+          git gc --prune=now
+          git repack -a -d --depth=250 --window=250
+          git fsck --full
+
+      - name: Push to mirror repository (commits only)
         run: |
           git push mirror main --force
-          git push mirror --tags
+
+      - name: Push tags separately
+        run: |
+          git push mirror --tags --force
 
       - name: Debug - Show Git status
         run: |
