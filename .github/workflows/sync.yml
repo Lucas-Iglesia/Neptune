@@ -22,15 +22,15 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan github.com >> ~/.ssh/known_hosts
 
-      - name: Pull from destination repository
-        env:
-          DEST_REPO: git@github.com:/G-EIP-700-REN-7-1-eip-adrien.picot.git
-        run: |
-          git remote add dest $DEST_REPO
-          git pull dest main
+      - name: Fetch all branches
+        run: git fetch --all
 
-      - name: Push to destination repository
+      - name: Sync branches
         env:
-          DEST_REPO: git@github.com:ArielChambaz/G-EIP-700-REN-7-1-eip-adrien.picot.git
+          DEST_REPO: git@github.com:ArielChambaz/https://github.com/EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git
         run: |
-          git push dest main --force
+          for branch in $(git branch -r | grep -v '\->' | grep -v 'origin/HEAD' | sed 's|origin/||'); do
+            git checkout $branch
+            git pull origin $branch
+            git push $DEST_REPO $branch --force
+          done
