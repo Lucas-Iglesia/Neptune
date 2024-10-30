@@ -46,7 +46,7 @@ jobs:
       - name: Pull from mirror repository
         run: |
           git fetch mirror
-          git merge --allow-unrelated-histories --strategy-option theirs mirror/${{ github.ref_name }}
+          git reset --hard mirror/${{ github.ref_name }}
 
       - name: Push to mirror repository
         run: |
