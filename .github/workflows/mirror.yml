@@ -17,12 +17,12 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           ref: ${{ github.ref }}
 
-      - name: Setup SSH
+      - name: Setup HTTP credentials for mirror
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          git remote remove mirror || true
+          git remote add mirror https://${{ secrets.GITHUB_TOKEN }}@github.com/EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git
 
       - name: Remove .github directory
         run: |
@@ -33,48 +33,18 @@ jobs:
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
 
-      - name: Clean up Git environment
-        run: |
-          git remote remove mirror || true
-          git gc --prune=now
-          git remote add mirror git@github.com:EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git
-
-      - name: Stash local changes to clean working directory
-        run: |
-          git stash --include-untracked
-
-      - name: Fetch and integrate changes from origin
-        run: |
-          git fetch origin
-          git pull origin main --rebase
-
-      - name: Pull from mirror repository
-        run: |
-          git fetch mirror
-          git reset --hard mirror/main
-
-      - name: Apply stashed changes if any
-        if: success()
-        run: |
-          git stash pop || true  # Applique le stash seulement s'il existe
-
-      - name: Ensure branch alignment with origin
-        run: |
-          git fetch origin
-          git reset --hard origin/main
-
-      - name: Clean Git to prevent corruption issues
+      - name: Clean Git environment to reduce data load
         run: |
           git reflog expire --expire=now --all
           git gc --prune=now
           git repack -a -d --depth=250 --window=250
           git fsck --full
 
-      - name: Push to mirror repository (commits only)
+      - name: Push commits only to mirror (HTTP)
         run: |
-          git push mirror main --force
+          git push mirror main --force --no-thin
 
-      - name: Push tags separately
+      - name: Push tags separately to mirror (HTTP)
         run: |
           git push mirror --tags --force
 
