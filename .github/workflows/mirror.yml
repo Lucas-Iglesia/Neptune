@@ -18,11 +18,9 @@ jobs:
           ref: ${{ github.ref }}
 
       - name: Setup HTTP credentials for mirror
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git remote remove mirror || true
-          git remote add mirror https://${{ secrets.GITHUB_TOKEN }}@github.com/EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git
+          git remote add mirror https://USERNAME:${{ secrets.PERSONAL_ACCESS_TOKEN }}@github.com/EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git
 
       - name: Remove .github directory
         run: |
