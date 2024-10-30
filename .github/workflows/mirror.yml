@@ -1,46 +1,40 @@
-name: Mirror
+name: Mirror Repository
 
 on:
   push:
     branches:
-      - main
+      - '**'
 
 jobs:
   mirror:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout source repository
         uses: actions/checkout@v2
         with:
           repository: ArielChambaz/Neptune
-          ref: refs/heads/main
-          path: source
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.ref }}
 
-      - name: Set up SSH
+      - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
 
       - name: Remove .github directory
         run: |
-          cd source
           rm -rf .github
 
-      - name: Clean up Git environment
+      - name: Pull from mirror repository
         run: |
-          cd source
-          git remote remove mirror || true
-          git gc --prune=now
           git remote add mirror git@github.com:EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git
-
-      - name: Mirror to another repository
-        run: |
-          cd source
-          git config user.name "GitHub Action"
-          git config user.email "action@github.com"
           git fetch mirror
-          git reset --hard origin/main
-          git push mirror main --force
+          git pull mirror ${{ github.ref_name }} --allow-unrelated-histories
+
+      - name: Push to mirror repository
+        run: |
+          git push mirror ${{ github.ref_name }} --force
+          git push mirror --tags
