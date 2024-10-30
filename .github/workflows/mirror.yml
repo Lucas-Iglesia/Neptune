@@ -1,62 +1,22 @@
-name: Mirror Repository
+name: Mirror to Another GitHub Repository
 
 on:
   push:
     branches:
-      - '**'
+      - '*'
 
 jobs:
   mirror:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source repository
+      - name: Checkout the repository
         uses: actions/checkout@v2
-        with:
-          repository: ArielChambaz/Neptune
-          token: ${{ secrets.GITHUB_TOKEN }}
-          ref: ${{ github.ref }}
 
-      - name: Setup SSH
+      - name: Push to the target repository
+        env:
+          TARGET_REPO: ${{ secrets.TARGET_REPO }} 
+          TARGET_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }} 
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan github.com >> ~/.ssh/known_hosts
-
-      - name: Remove .github directory
-        run: |
-          rm -rf .github
-
-      - name: Configure Git user
-        run: |
-          git config --global user.name "GitHub Action"
-          git config --global user.email "action@github.com"
-
-      - name: Clean up Git environment
-        run: |
-          git remote remove mirror || true
-          git gc --prune=now
-          git remote add mirror git@github.com:EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git
-
-      - name: Debug - Show Git remotes
-        run: |
-          git remote -v
-
-      - name: Pull from mirror repository
-        run: |
-          git fetch mirror
-          git reset --hard mirror/${{ github.ref_name }}
-
-      - name: Push to mirror repository
-        run: |
-          git push mirror ${{ github.ref_name }} --force
-          git push mirror --tags
-
-      - name: Debug - Show Git status
-        run: |
-          git status
-
-      - name: Debug - Show Git log
-        run: |
-          git log -3
+          git remote add target $TARGET_REPO
+          git push target HEAD:refs/heads/${{ github.ref }} --force  # Pousse vers la même branche sur le dépôt cible
