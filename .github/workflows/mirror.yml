@@ -28,6 +28,10 @@ jobs:
         run: |
           rm -rf .github
 
+      - name: Stash changes
+        run: |
+          git stash --include-untracked
+
       - name: Pull from mirror repository
         run: |
           git remote add mirror git@github.com:EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git
