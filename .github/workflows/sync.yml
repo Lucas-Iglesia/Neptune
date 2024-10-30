@@ -1,0 +1,36 @@
+name: Sync Repositories
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v2
+        with:
+          repository: ${{ github.repository }}
+          ref: main
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Pull from destination repository
+        env:
+          DEST_REPO: git@github.com:/G-EIP-700-REN-7-1-eip-adrien.picot.git
+        run: |
+          git remote add dest $DEST_REPO
+          git pull dest main
+
+      - name: Push to destination repository
+        env:
+          DEST_REPO: git@github.com:ArielChambaz/G-EIP-700-REN-7-1-eip-adrien.picot.git
+        run: |
+          git push dest main --force
