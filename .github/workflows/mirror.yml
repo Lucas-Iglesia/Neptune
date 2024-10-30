@@ -43,4 +43,4 @@ jobs:
           git config user.email "action@github.com"
           git fetch mirror
           git reset --hard origin/main
-          git push mirror refs/heads/main --force
+          git push mirror main --force
