@@ -13,7 +13,7 @@ jobs:
       - name: Checkout Source Repository
         uses: actions/checkout@v3
         with:
-          repository: ArielChambaz/Neptune  # Remplace par ton dépôt source
+          repository: ArielChambaz/Neptune
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN}}
           fetch-depth: 0  # Nécessaire pour cloner toutes les branches
 
