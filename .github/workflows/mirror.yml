@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           repository: ArielChambaz/Neptune  # Remplace par ton dépôt source
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN}}
           fetch-depth: 0  # Nécessaire pour cloner toutes les branches
 
       - name: Mirror Push to Destination Repository
@@ -22,4 +22,4 @@ jobs:
           git remote add destination https://github.com/EpitechPromo2026/G-EIP-700-REN-7-1-eip-adrien.picot.git  # Remplace par ton dépôt miroir
           git push --mirror destination
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN}}
