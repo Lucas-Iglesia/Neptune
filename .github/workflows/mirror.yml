@@ -15,7 +15,7 @@ jobs:
         with:
           repository: ArielChambaz/Neptune
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN}}
-          fetch-depth: 0 
+          fetch-depth: 0  # Nécessaire pour cloner toutes les branches
 
       - name: Mirror Push to Destination Repository
         run: |
