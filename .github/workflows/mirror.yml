@@ -15,11 +15,7 @@ jobs:
         with:
           repository: ArielChambaz/Neptune
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN}}
-          fetch-depth: 0 
-
-      - name: Remove .github directory
-        run: |
-          rm -rf .github
+          fetch-depth: 0
 
       - name: Mirror Push to Destination Repository
         run: |
