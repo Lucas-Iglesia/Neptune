@@ -1,0 +1,6 @@
+train: /content/dataset/images
+val: /content/dataset/images
+# test: /content/data/test/images
+
+nc: 1
+names: ["human"]
