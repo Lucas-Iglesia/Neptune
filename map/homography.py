@@ -7,7 +7,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 
-
 # 4 points in pixels in the image captured by the "Camera"
 pts_image = np.array([[100, 200], [400, 200], [450, 600], [50, 600]], dtype='float32')
 
