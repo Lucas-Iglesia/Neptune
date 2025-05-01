@@ -1,4 +1,9 @@
 __pycache__
 .vscode
 dataset
+*/dataset
 *.zip
+beach-data
+*.MOV
+*.mp4
+*/data
