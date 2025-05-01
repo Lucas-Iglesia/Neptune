@@ -41,7 +41,8 @@ MINIMAP_W, MINIMAP_H = 320, 160
 PADDING_PX           = 12
 
 water_seg = YOLO(SEG_MODEL_PATH)          # water segmentation model
-person_det = YOLO(DET_MODEL_PATH).fuse()  # person detector (weights fused)
+person_det = YOLO(DET_MODEL_PATH)  # person detector (weights fused)
+person_det.fuse()
 
 H_latest: np.ndarray | None = None
 
