@@ -5,13 +5,13 @@ from tqdm import tqdm
 
 # Folders containing processed videos
 nhd_folder = "result-video/model/nhd-v3"
-yolo_folder = "result-video/model/yolo11n"
+yolo_folder = "result-video/model/nhd-v4"
 output_folder = "result-video/comparisons"
 os.makedirs(output_folder, exist_ok=True)
 
 # Get common files
-nhd_videos = sorted([f for f in os.listdir(nhd_folder) if f.endswith(".MOV")])
-yolo_videos = sorted([f for f in os.listdir(yolo_folder) if f.endswith(".MOV")])
+nhd_videos = sorted([f for f in os.listdir(nhd_folder) if f.endswith(".mp4")])
+yolo_videos = sorted([f for f in os.listdir(yolo_folder) if f.endswith(".mp4")])
 
 common_videos = set(nhd_videos) & set(yolo_videos)
 
@@ -59,7 +59,7 @@ for video_file in common_videos:
         
         # Add labels
         cv2.putText(frame_nhd, "NHD-V3", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
-        cv2.putText(frame_yolo, "Yolo11", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
+        cv2.putText(frame_yolo, "NHD-V4", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
         
         # Concatenate vertically
         stacked_frame = np.vstack((frame_nhd, frame_yolo))
