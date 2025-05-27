@@ -33,10 +33,10 @@ MINIMAP_W, MINIMAP_H = 320, 160
 PADDING_PX         = 12
 
 # Load models
-print("• Chargement segmentation eau (YOLO-Seg)…")
+print("• Loading NWD(YOLO11)…")
 water_seg = YOLO(SEG_MODEL_PATH)
 
-print("• Chargement D-FINE…")
+print("• Loading NHD(D-FINE)…")
 processor = AutoImageProcessor.from_pretrained("ustc-community/dfine_x_coco")
 dfine = DFineForObjectDetection.from_pretrained(
     "ustc-community/dfine_x_coco",
@@ -45,7 +45,6 @@ dfine = DFineForObjectDetection.from_pretrained(
 
 # Person detection
 class BoxStub:
-    """Mini-conteneur compatible avec le reste du pipeline (xywh, cls, conf)."""
     def __init__(self, cx, cy, w, h, conf):
         self.xywh = torch.tensor([[cx, cy, w, h]])
         self.cls  = torch.tensor([0])      # classe 0 = person
@@ -84,10 +83,10 @@ H_latest: np.ndarray | None = None
 # Loop
 cap = cv2.VideoCapture(str(Path(VIDEO_PATH)))
 if not cap.isOpened():
-    raise IOError(f"Impossible d’ouvrir la vidéo : {VIDEO_PATH}")
+    raise IOError(f"Can't open the video: {VIDEO_PATH}")
 
 frame_idx = 0
-print("• Démarrage traitement vidéo…   (ESC pour quitter)")
+print("• Processing video (ESC to quit)")
 while True:
     ok, frame = cap.read()
     if not ok:
