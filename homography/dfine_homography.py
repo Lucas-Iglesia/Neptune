@@ -37,7 +37,7 @@ print("• Loading NWD(YOLO11)…")
 water_seg = YOLO(SEG_MODEL_PATH)
 
 print("• Loading NHD(D-FINE)…")
-processor = AutoImageProcessor.from_pretrained("ustc-community/dfine_x_coco")
+processor = AutoImageProcessor.from_pretrained("ustc-community/dfine_x_coco") # n - s - m - l - x (model sizes)
 dfine = DFineForObjectDetection.from_pretrained(
     "ustc-community/dfine_x_coco",
     torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
@@ -52,32 +52,24 @@ class BoxStub:
 
 @torch.inference_mode()
 def detect_persons_dfine(frame_bgr, conf_thres=CONF_THRES):
-    inputs = processor(images=frame_bgr[:, :, ::-1],
-                       return_tensors="pt").to(DEVICE)
+    inputs = processor(images=frame_bgr[:, :, ::-1], return_tensors="pt").to(DEVICE)
     outputs = dfine(**inputs)
-    results = processor.post_process_object_detection(
-        outputs,
-        target_sizes=[(frame_bgr.shape[0], frame_bgr.shape[1])],
-        threshold=conf_thres,
-    )[0]
+    results = processor.post_process_object_detection(outputs, target_sizes=[(frame_bgr.shape[0], frame_bgr.shape[1])], threshold=conf_thres,)[0]
 
     persons = []
-    for box, label, score in zip(results["boxes"],
-                                 results["labels"],
-                                 results["scores"]):
+    for box, label, score in zip(results["boxes"], results["labels"], results["scores"]):
         if label.item() == 0:              # id COCO 0 = person
             x0, y0, x1, y1 = box.tolist()
             cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
             persons.append(BoxStub(cx, cy, x1 - x0, y1 - y0, score.item()))
     return persons
 
-
 # Setup minimap homography
 DST_RECT = np.array(
     [[0, 0], [MAP_W_PX, 0], [MAP_W_PX, MAP_H_PX], [0, MAP_H_PX]],
     dtype=np.float32,
 )
-map_canvas_base = np.full((MAP_H_PX, MAP_W_PX, 3), 80, np.uint8)  # gris
+map_canvas_base = np.full((MAP_H_PX, MAP_W_PX, 3), 80, np.uint8)  # gray
 H_latest: np.ndarray | None = None
 
 # Loop
