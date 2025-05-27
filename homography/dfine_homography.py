@@ -1,16 +1,3 @@
-"""
-dfine_homography.py
--------------------
-Localisation temps réel des personnes sur une plage :
-    1. Segmentation de l’eau avec nwd-v2 -> recalcul homographie.
-    2. Détection des personnes avec D-FINE (Transformer).
-    3. Projection des personnes (points blancs) sur mini-carte top-down.
-    4. Polygone vert = zone couverte par l’homographie.
-
-Dépendances :
-    pip install --upgrade transformers==4.52.3 timm opencv-python ultralytics torch  # + cuda toolkit si GPU
-"""
-
 from pathlib import Path
 import time
 import cv2
@@ -26,7 +13,7 @@ VIDEO_PATH       = "./homography/data/IMG_6863.MOV"
 SEG_MODEL_PATH   = "water-detection/model-v2/nwd-v2.pt"
 CONF_THRES       = 0.25
 MAP_W_PX, MAP_H_PX = 400, 200
-UPDATE_EVERY     = 90
+UPDATE_EVERY     = 300
 MIN_WATER_AREA_PX = 5_000
 DISPLAY_W, DISPLAY_H = 1280, 720
 MINIMAP_W, MINIMAP_H = 320, 160
