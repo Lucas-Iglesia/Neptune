@@ -19,14 +19,16 @@ DISPLAY_W, DISPLAY_H = 1280, 720
 MINIMAP_W, MINIMAP_H = 320, 160
 PADDING_PX         = 12
 
+MODEL_ID = "ustc-community/dfine-xlarge-obj2coco" # ustc-community/dfine_x_coco
+
 # Load models
 print("• Loading NWD(YOLO11)…")
 water_seg = YOLO(SEG_MODEL_PATH)
 
 print("• Loading NHD(D-FINE)…")
-processor = AutoImageProcessor.from_pretrained("ustc-community/dfine_x_coco") # n - s - m - l - x (model sizes)
+processor = AutoImageProcessor.from_pretrained(MODEL_ID) # n - s - m - l - x (model sizes)
 dfine = DFineForObjectDetection.from_pretrained(
-    "ustc-community/dfine_x_coco",
+    MODEL_ID,
     torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
 ).to(DEVICE).eval()
 
