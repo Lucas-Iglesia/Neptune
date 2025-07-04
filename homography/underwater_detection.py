@@ -12,7 +12,7 @@ from datetime import datetime
 
 # Config
 DEVICE           = "cuda" if torch.cuda.is_available() else "cpu"
-VIDEO_PATH       = "./homography/data/IMG_9702[1].MOV"
+VIDEO_PATH       = "./homography/data/IMG_6863.MOV"
 SEG_MODEL_PATH   = "water-detection/model-v2/nwd-v2.pt"
 CONF_THRES       = 0.25
 MAP_W_PX, MAP_H_PX = 400, 200
@@ -389,8 +389,7 @@ while True:
                     cv2.circle(map_canvas, (int(x), int(y)), 4, color, -1)
 
                 # Add ID and status
-                status_symbol = "🌊" if track['status'] == 'underwater' else "🏄"
-                cv2.putText(map_canvas, f"{track_id}{status_symbol}", (int(x) + 8, int(y) - 8),
+                cv2.putText(map_canvas, f"{track_id}", (int(x) + 8, int(y) - 8),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.3, color, 1)
 
         # Draw track history
