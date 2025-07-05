@@ -14,7 +14,7 @@ from datetime import datetime
 DEVICE           = "cuda" if torch.cuda.is_available() else "cpu"
 VIDEO_PATH       = "./homography/data/IMG_6863.MOV"
 SEG_MODEL_PATH   = "water-detection/model-v2/nwd-v2.pt"
-CONF_THRES       = 0.25
+CONF_THRES       = 0.4
 MAP_W_PX, MAP_H_PX = 400, 200
 UPDATE_EVERY     = 300
 MIN_WATER_AREA_PX = 5_000
@@ -71,7 +71,9 @@ class UnderwaterPersonTracker:
             'underwater_start_time': None,
             'underwater_duration': 0,
             'submersion_events': [],  # List of (start_time, duration) tuples
-            'danger_alert_sent': False
+            'danger_alert_sent': False,
+            'dangerosity_score': 0,
+            'distance_from_shore': 0.0
         }
 
     def update(self, detections, frame_timestamp=None):
@@ -286,6 +288,118 @@ UNDERWATER_COLORS = [
 ]
 DANGER_COLOR = (0, 0, 255)  # Bright red for danger
 
+def calculate_dangerosity_score(track, frame_timestamp, distance_from_shore=0):
+    """
+    Calculate dangerosity score from 0 to 100
+    
+    Args:
+        track: Person track data
+        frame_timestamp: Current frame timestamp
+        distance_from_shore: Distance from shore (0-1, where 1 is farthest)
+    
+    Returns:
+        int: Dangerosity score (0-100)
+    """
+    score = 0
+    
+    # Base score - not in water = 0
+    if track['status'] != 'underwater':
+        # Surface score based on proximity to water edge
+        score = min(20, int(distance_from_shore * 20))
+        return score
+    
+    # Underwater scoring
+    score = 30  # Base underwater score
+    
+    # Time underwater factor (0-40 points)
+    if track['underwater_start_time']:
+        underwater_time = frame_timestamp - track['underwater_start_time']
+        if underwater_time > DANGER_TIME_THRESHOLD:
+            score += 40  # Maximum time danger
+        else:
+            score += int((underwater_time / DANGER_TIME_THRESHOLD) * 40)
+    
+    # Distance from shore factor (0-20 points)
+    score += int(distance_from_shore * 20)
+    
+    # Consecutive underwater frames factor (0-10 points)
+    if track['frames_underwater'] > UNDERWATER_THRESHOLD:
+        excess_frames = track['frames_underwater'] - UNDERWATER_THRESHOLD
+        score += min(10, int(excess_frames / 10))
+    
+    return min(100, score)
+
+def get_color_by_dangerosity(score):
+    """
+    Get color based on dangerosity score with gradient
+    
+    Args:
+        score: Dangerosity score (0-100)
+    
+    Returns:
+        tuple: BGR color tuple
+    """
+    if score <= 20:
+        # Green gradient (dark to light green)
+        # Dark green (0, 100, 0) to light green (144, 238, 144)
+        ratio = score / 20.0
+        b = int(144 * ratio)
+        g = int(100 + (138 * ratio))
+        r = int(144 * ratio)
+        return (b, g, r)
+    
+    elif score <= 40:
+        # Light green to yellow
+        # Light green (144, 238, 144) to yellow (0, 255, 255)
+        ratio = (score - 20) / 20.0
+        b = int(144 * (1 - ratio))
+        g = int(238 + (17 * ratio))
+        r = int(144 + (111 * ratio))
+        return (b, g, r)
+    
+    elif score <= 60:
+        # Yellow to orange
+        # Yellow (0, 255, 255) to orange (0, 165, 255)
+        ratio = (score - 40) / 20.0
+        b = 0
+        g = int(255 - (90 * ratio))
+        r = 255
+        return (b, g, r)
+    
+    elif score <= 80:
+        # Orange to red
+        # Orange (0, 165, 255) to red (0, 0, 255)
+        ratio = (score - 60) / 20.0
+        b = 0
+        g = int(165 * (1 - ratio))
+        r = 255
+        return (b, g, r)
+    
+    else:
+        # Red to dark red
+        # Red (0, 0, 255) to dark red (0, 0, 139)
+        ratio = (score - 80) / 20.0
+        b = 0
+        g = 0
+        r = int(255 - (116 * ratio))
+        return (b, g, r)
+
+def calculate_distance_from_shore(x, y, map_width, map_height):
+    """
+    Calculate normalized distance from shore (0-1)
+    Assumes shore is at the bottom of the map
+    
+    Args:
+        x, y: Position coordinates
+        map_width, map_height: Map dimensions
+    
+    Returns:
+        float: Distance from shore (0-1, where 1 is farthest)
+    """
+    # Simple distance from bottom edge (shore)
+    distance_from_bottom = (map_height - y) / map_height
+    return max(0, min(1, distance_from_bottom))
+
 def get_color_for_track(track_id, status, is_danger=False):
     if is_danger:
         return DANGER_COLOR
@@ -373,8 +487,14 @@ while True:
             x, y = proj.reshape(-1, 2)[0]
 
             if 0 <= x < MAP_W_PX and 0 <= y < MAP_H_PX:
+                # Calculate distance from shore and dangerosity score
+                distance_from_shore = calculate_distance_from_shore(x, y, MAP_W_PX, MAP_H_PX)
+                track['distance_from_shore'] = distance_from_shore
+                track['dangerosity_score'] = calculate_dangerosity_score(track, frame_timestamp, distance_from_shore)
+                
+                # Use dangerosity-based color
+                color = get_color_by_dangerosity(track['dangerosity_score'])
                 is_danger = track_id in danger_tracks
-                color = get_color_for_track(track_id, track['status'], is_danger)
 
                 # Different symbols for different states
                 if track['status'] == 'underwater':
@@ -388,13 +508,14 @@ while True:
                     # Regular circle for surface
                     cv2.circle(map_canvas, (int(x), int(y)), 4, color, -1)
 
-                # Add ID and status
-                cv2.putText(map_canvas, f"{track_id}", (int(x) + 8, int(y) - 8),
+                # Add ID and dangerosity score
+                cv2.putText(map_canvas, f"{track_id}({track['dangerosity_score']})", 
+                           (int(x) + 8, int(y) - 8),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.3, color, 1)
 
-        # Draw track history
+        # Draw track history with color gradient
         if len(track['history']) > 1:
-            color = get_color_for_track(track_id, track['status'])
+            color = get_color_by_dangerosity(track['dangerosity_score'])
             history_points = []
             for hist_point in track['history'][-15:]:  # Last 15 points
                 center = np.array([[[hist_point[0], hist_point[1]]]], dtype=np.float32)
@@ -418,25 +539,43 @@ while True:
         if track_id != -1:
             track = active_tracks.get(track_id)
             if track:
+                # Use dangerosity-based color
+                color = get_color_by_dangerosity(track['dangerosity_score'])
                 is_danger = track_id in danger_tracks
-                color = get_color_for_track(track_id, track['status'], is_danger)
 
                 # Different box styles for different states
                 thickness = 3 if is_danger else 2
                 cv2.rectangle(vis, (x0, y0), (x1, y1), color, thickness)
 
-                # Status and ID
-                status_text = f"ID:{track_id} ({track['status'].upper()})"
+                # Status, ID, and dangerosity score
+                status_text = f"ID:{track_id} ({track['status'].upper()}) - Score: {track['dangerosity_score']}"
                 if track['status'] == 'underwater':
                     duration = frame_timestamp - (track['underwater_start_time'] or frame_timestamp)
-                    status_text += f" {duration:.1f}s"
+                    status_text += f" | {duration:.1f}s"
 
                 cv2.putText(vis, status_text, (x0, y0 - 10),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-                # Confidence
-                cv2.putText(vis, f"{person.conf[0]:.2f}", (x0, y1 + 20),
+                # Confidence and distance from shore
+                info_text = f"Conf: {person.conf[0]:.2f} | Shore: {track['distance_from_shore']:.2f}"
+                cv2.putText(vis, info_text, (x0, y1 + 20),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+
+                # Draw dangerosity bar
+                bar_width = int(w * 0.8)
+                bar_height = 6
+                bar_x = x0 + int((w - bar_width) / 2)
+                bar_y = y1 + 35
+                
+                # Background bar
+                cv2.rectangle(vis, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), 
+                             (50, 50, 50), -1)
+                
+                # Dangerosity bar fill
+                fill_width = int((track['dangerosity_score'] / 100.0) * bar_width)
+                if fill_width > 0:
+                    cv2.rectangle(vis, (bar_x, bar_y), (bar_x + fill_width, bar_y + bar_height), 
+                                 color, -1)
 
     # Draw water area outline
     src_poly = cv2.perspectiveTransform(
@@ -454,27 +593,62 @@ while True:
     active_count = len(active_tracks)
     underwater_count = len(underwater_tracks)
     danger_count = len(danger_tracks)
+    
+    # Calculate average dangerosity
+    avg_dangerosity = 0
+    max_dangerosity = 0
+    if active_tracks:
+        total_dangerosity = sum(track['dangerosity_score'] for track in active_tracks.values())
+        avg_dangerosity = total_dangerosity / len(active_tracks)
+        max_dangerosity = max(track['dangerosity_score'] for track in active_tracks.values())
 
-    cv2.putText(vis_small, f"Active: {active_count} | Underwater: {underwater_count}", 
+    cv2.putText(vis_small, f"Active: {active_count} | Underwater: {underwater_count} | Avg Score: {avg_dangerosity:.1f}", 
                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
     if danger_count > 0:
-        cv2.putText(vis_small, f"🚨 DANGER: {danger_count} person(s)!",
+        cv2.putText(vis_small, f"DANGER: {danger_count} person(s)! Max Score: {max_dangerosity}",
                    (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+    
+    # Draw danger scale legend
+    legend_x, legend_y = 10, DISPLAY_H - 80
+    legend_width = 200
+    legend_height = 20
+    
+    # Draw scale background
+    cv2.rectangle(vis_small, (legend_x, legend_y), (legend_x + legend_width, legend_y + legend_height), 
+                 (50, 50, 50), -1)
+    
+    # Draw color gradient
+    for i in range(legend_width):
+        score = (i / legend_width) * 100
+        color = get_color_by_dangerosity(score)
+        cv2.line(vis_small, (legend_x + i, legend_y), (legend_x + i, legend_y + legend_height), color, 1)
+    
+    # Scale labels
+    cv2.putText(vis_small, "Dangerosity: 0", (legend_x, legend_y - 5),
+               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+    cv2.putText(vis_small, "100", (legend_x + legend_width - 25, legend_y - 5),
+               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+    cv2.putText(vis_small, "Safe", (legend_x, legend_y + legend_height + 15),
+               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+    cv2.putText(vis_small, "Danger", (legend_x + legend_width - 40, legend_y + legend_height + 15),
+               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
 
     toc = time.perf_counter()
     fps_current = 1.0 / (toc - tic)
     print(f"Frame {frame_idx:04d} | {1000*(toc - tic):6.1f} ms | {fps_current:5.1f} fps | "
-          f"Active: {active_count} | Underwater: {underwater_count} | Danger: {danger_count}")
+          f"Active: {active_count} | Underwater: {underwater_count} | Danger: {danger_count} | "
+          f"Avg Score: {avg_dangerosity:.1f} | Max Score: {max_dangerosity}")
 
     cv2.imshow("Underwater Person Tracker", vis_small)
     if cv2.waitKey(1) & 0xFF == 27:
         break
 
-# Print final statistics
-print("\n📊 Final Statistics:")
+print("\nFinal Statistics:")
 for track_id, track in tracker.tracks.items():
     print(f"Person {track_id}:")
+    print(f"  - Final dangerosity score: {track.get('dangerosity_score', 0)}")
+    print(f"  - Distance from shore: {track.get('distance_from_shore', 0):.2f}")
     print(f"  - Total submersion events: {len(track['submersion_events'])}")
     if track['submersion_events']:
         total_time = sum(duration for _, duration in track['submersion_events'])
