@@ -12,7 +12,7 @@ from datetime import datetime
 
 # Config
 DEVICE           = "cuda" if torch.cuda.is_available() else "cpu"
-VIDEO_PATH       = "data/IMG_9708.MOV"
+VIDEO_PATH       = "data/clideo_editor_7fe7e5ff50a443ecb7ec66f86cc8df11.mp4"
 SEG_MODEL_PATH   = "model/nwd-v2.pt"
 CONF_THRES       = 0.4
 MAP_W_PX, MAP_H_PX = 400, 200
@@ -24,10 +24,10 @@ PADDING_PX         = 12
 
 # Tracking config
 MAX_DISTANCE_THRESHOLD = 100  # pixels
-MAX_FRAMES_DISAPPEARED = 30   # frames before removing a track
+MAX_FRAMES_DISAPPEARED = 300  # frames before removing a track
 UNDERWATER_THRESHOLD = 15     # frames without detection to consider underwater
 SURFACE_THRESHOLD = 5         # consecutive detections to consider surfaced
-DANGER_TIME_THRESHOLD = 90    # seconds underwater before danger alert
+DANGER_TIME_THRESHOLD = 10   # seconds underwater before danger alert
 
 MODEL_ID = "ustc-community/dfine-xlarge-obj2coco"
 
@@ -73,7 +73,8 @@ class UnderwaterPersonTracker:
             'submersion_events': [],  # List of (start_time, duration) tuples
             'danger_alert_sent': False,
             'dangerosity_score': 0,
-            'distance_from_shore': 0.0
+            'distance_from_shore': 0.0,
+            'dive_point': None
         }
 
     def update(self, detections, frame_timestamp=None):
@@ -96,6 +97,7 @@ class UnderwaterPersonTracker:
                         # Just went underwater
                         track['status'] = 'underwater'
                         track['underwater_start_time'] = frame_timestamp
+                        track['dive_point'] = track['center']
                         track['danger_alert_sent'] = False
                         print(f"🌊 Person {track_id} went UNDERWATER")
 
@@ -311,6 +313,36 @@ def calculate_dangerosity_score(track, frame_timestamp, distance_from_shore=0):
         int: Dangerosity score (0-100)
     """
     score = 0
+
+    # Si à la surface, score faible selon distance du rivage
+    if track['status'] != 'underwater':
+        score = min(20, int(distance_from_shore * 20))
+        return score
+
+    # Sous l'eau : base 30 pts
+    score = 30
+
+    # Temps sous l'eau (0–40 pts)
+    if track['underwater_start_time']:
+        t = frame_timestamp - track['underwater_start_time']
+        if t > DANGER_TIME_THRESHOLD:
+            score += 40
+            # Alerte unique
+            if not track['danger_alert_sent']:
+                print(f"🚨 DANGER ALERT: Person {track_id} underwater for {t:.1f}s!")
+                track['danger_alert_sent'] = True
+        else:
+            score += int((t / DANGER_TIME_THRESHOLD) * 40)
+
+    # Distance du rivage (0–20 pts)
+    score += int(distance_from_shore * 20)
+
+    # Frames underwater en excès (0–10 pts)
+    if track['frames_underwater'] > UNDERWATER_THRESHOLD:
+        excess = track['frames_underwater'] - UNDERWATER_THRESHOLD
+        score += min(10, excess // 10)
+
+    return min(100, score)
     
     # Base score - not in water = 0
     if track['status'] != 'underwater':
@@ -427,6 +459,7 @@ if not cap.isOpened():
 fps = cap.get(cv2.CAP_PROP_FPS) or 30
 tracker.frame_rate = fps
 
+
 frame_idx = 0
 start_time = time.time()
 print("• Processing video with underwater tracking (ESC to quit)")
@@ -488,6 +521,24 @@ while True:
     # Show tracked persons on the homography mini-map
     map_canvas = map_canvas_base.copy()
 
+    # DESSIN GLOBAL DES POINTS DE PLONGÉE (tant qu’un track existe, même s’il n’est plus actif)
+    for t_id, t in tracker.tracks.items():
+        if t['dive_point'] is None:
+            continue
+        dp = np.array([[[t['dive_point'][0], t['dive_point'][1]]]], np.float32)
+        pd = cv2.perspectiveTransform(dp, H_latest).reshape(-1, 2)[0]
+        x_d, y_d = int(pd[0]), int(pd[1])
+        is_dang = t_id in danger_tracks
+        col = DANGER_COLOR if is_dang else get_color_by_dangerosity(t['dangerosity_score'])
+        cv2.drawMarker(
+            map_canvas,
+            (x_d, y_d),
+            color=col,
+            markerType=cv2.MARKER_CROSS,
+            markerSize=10,
+            thickness=2
+        )
+
     # Draw all active tracks on minimap
     for track_id, track in active_tracks.items():
         if track['history']:
@@ -522,6 +573,12 @@ while True:
                 cv2.putText(map_canvas, f"{track_id}({track['dangerosity_score']})", 
                            (int(x) + 8, int(y) - 8),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.3, color, 1)
+
+                # Add ID and dangerosity score
+                cv2.putText(map_canvas, f"{track_id}({track['dangerosity_score']})", 
+                           (int(x) + 8, int(y) - 8),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.3, color, 1)
+
 
         # Draw track history with color gradient
         if len(track['history']) > 1:
