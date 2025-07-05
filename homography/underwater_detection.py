@@ -12,8 +12,8 @@ from datetime import datetime
 
 # Config
 DEVICE           = "cuda" if torch.cuda.is_available() else "cpu"
-VIDEO_PATH       = "data/clideo_editor_7fe7e5ff50a443ecb7ec66f86cc8df11.mp4"
-SEG_MODEL_PATH   = "model/nwd-v2.pt"
+VIDEO_PATH       = "homography/data/clip.mp4"
+SEG_MODEL_PATH   = "water-detection/model-v2/nwd-v2.pt"
 CONF_THRES       = 0.4
 MAP_W_PX, MAP_H_PX = 400, 200
 UPDATE_EVERY     = 300
@@ -265,7 +265,7 @@ def detect_persons_dfine(frame_bgr, conf_thres=CONF_THRES):
         inputs["pixel_values"] = inputs["pixel_values"].to(dtype=torch.float16)
 
     outputs = dfine(**inputs)
-    
+
     results = processor.post_process_object_detection(
         outputs,
         target_sizes=[(frame_bgr.shape[0], frame_bgr.shape[1])],
@@ -615,7 +615,7 @@ while True:
                 cv2.rectangle(vis, (x0, y0), (x1, y1), color, thickness)
 
                 # Status, ID, and dangerosity score
-                status_text = f"ID:{track_id} ({track['status'].upper()}) - Score: {track['dangerosity_score']}"
+                status_text = f"ID:{track_id} ({track['status'].upper()}) - ({track['dangerosity_score']})"
                 if track['status'] == 'underwater':
                     duration = frame_timestamp - (track['underwater_start_time'] or frame_timestamp)
                     status_text += f" | {duration:.1f}s"
@@ -624,20 +624,20 @@ while True:
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
                 # Confidence and distance from shore
-                info_text = f"Conf: {person.conf[0]:.2f} | Shore: {track['distance_from_shore']:.2f}"
-                cv2.putText(vis, info_text, (x0, y1 + 20),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+                # info_text = f"Conf: {person.conf[0]:.2f} | Shore: {track['distance_from_shore']:.2f}"
+                # cv2.putText(vis, info_text, (x0, y1 + 20),
+                #            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
                 # Draw dangerosity bar
                 bar_width = int(w * 0.8)
                 bar_height = 6
                 bar_x = x0 + int((w - bar_width) / 2)
                 bar_y = y1 + 35
-                
+
                 # Background bar
-                cv2.rectangle(vis, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), 
-                             (50, 50, 50), -1)
-                
+                # cv2.rectangle(vis, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), 
+                #              (50, 50, 50), -1)
+
                 # Dangerosity bar fill
                 fill_width = int((track['dangerosity_score'] / 100.0) * bar_width)
                 if fill_width > 0:
@@ -661,15 +661,20 @@ while True:
     underwater_count = len(underwater_tracks)
     danger_count = len(danger_tracks)
     
-    # Calculate average dangerosity
-    avg_dangerosity = 0
+    # Calculate max dangerosity and ID
     max_dangerosity = 0
+    max_dangerosity_id = None
     if active_tracks:
-        total_dangerosity = sum(track['dangerosity_score'] for track in active_tracks.values())
-        avg_dangerosity = total_dangerosity / len(active_tracks)
-        max_dangerosity = max(track['dangerosity_score'] for track in active_tracks.values())
+        for track_id, track in active_tracks.items():
+            if track['dangerosity_score'] > max_dangerosity:
+                max_dangerosity = track['dangerosity_score']
+                max_dangerosity_id = track_id
 
-    cv2.putText(vis_small, f"Active: {active_count} | Underwater: {underwater_count} | Avg Score: {avg_dangerosity:.1f}", 
+    status_text = f"Active: {active_count} | Underwater: {underwater_count}"
+    if max_dangerosity_id is not None:
+        status_text += f" | Max Score: {max_dangerosity} (ID:{max_dangerosity_id})"
+    
+    cv2.putText(vis_small, status_text, 
                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
     if danger_count > 0:
@@ -705,7 +710,7 @@ while True:
     fps_current = 1.0 / (toc - tic)
     print(f"Frame {frame_idx:04d} | {1000*(toc - tic):6.1f} ms | {fps_current:5.1f} fps | "
           f"Active: {active_count} | Underwater: {underwater_count} | Danger: {danger_count} | "
-          f"Avg Score: {avg_dangerosity:.1f} | Max Score: {max_dangerosity}")
+          f"Max Score: {max_dangerosity} (ID:{max_dangerosity_id})")
 
     cv2.imshow("Underwater Person Tracker", vis_small)
     if cv2.waitKey(1) & 0xFF == 27:
