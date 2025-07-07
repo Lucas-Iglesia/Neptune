@@ -1,0 +1,16 @@
+torch==2.4.1
+torchvision>=0.15.2
+faster-coco-eval>=1.6.5
+PyYAML
+tensorboard
+scipy
+calflops
+transformers
+loguru
+opencv-python
+flask==3.0.3
+flask-cors==4.0.0
+opencv-python==4.10.0.82
+transformers>=4.42.4
+ultralytics>=8.3.0
+numpy==1.26.4

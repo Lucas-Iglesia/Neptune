@@ -8,6 +8,8 @@ beach-data
 *.mp4
 */data
 */bun.lock
+*.venv
+*.env
 demo/Demo-1/video
 demo/Demo-2/video
 demo/Demo-3/video

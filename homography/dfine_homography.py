@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 import time
 import cv2
@@ -6,6 +8,11 @@ import torch
 from transformers import AutoImageProcessor, DFineForObjectDetection
 from ultralytics import YOLO
 
+import torch, sys, subprocess, platform
+print("torch :", torch.__version__)
+print("cuda  :", torch.version.cuda)
+print("build :", torch.version.git_version)
+print("is_gpu_available :", torch.cuda.is_available())
 
 # Config
 DEVICE           = "cuda" if torch.cuda.is_available() else "cpu"
@@ -30,6 +37,7 @@ processor = AutoImageProcessor.from_pretrained(MODEL_ID) # n - s - m - l - x (mo
 dfine = DFineForObjectDetection.from_pretrained(
     MODEL_ID,
     torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+    # torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
 ).to(DEVICE).eval()
 
 # Person detection
