@@ -7,9 +7,10 @@ from ultralytics import YOLO
 
 class HomographyProcessor:
     MAP_W_PX, MAP_H_PX = 400, 200
-    UPDATE_EVERY = 300  # Recalculate H every 300 frames
+    UPDATE_EVERY = 300
     CONF_THRES = 0.4
     MIN_WATER_AREA_PX = 5_000
+    INFER_EVERY = 1
 
     def __init__(self, video_path: str):
         self.cap = cv2.VideoCapture(str(Path(video_path)))
@@ -56,7 +57,10 @@ class HomographyProcessor:
         if self.H_latest is None:
             return frame_bgr
 
-        people = self._detect_persons(frame_bgr)
+        if self.frame_idx % self.INFER_EVERY == 0:
+            self.people_cache = self._detect_persons(frame_bgr)
+        people = getattr(self, "people_cache", [])
+        # people = self._detect_persons(frame_bgr)
         map_canvas = np.full((self.MAP_H_PX, self.MAP_W_PX, 3), 80, np.uint8)
 
         if people:
@@ -72,12 +76,19 @@ class HomographyProcessor:
             x, y, w, h = self.water_bbox
             cv2.rectangle(frame_bgr, (x, y), (x + w, y + h), (0, 255, 255), 2)
 
-        DISPLAY_W, DISPLAY_H = 1280, 720
+        vis = frame_bgr.copy()
+        MAX_LONG_SIDE = 1280
+        h, w = vis.shape[:2]
+        if max(w, h) > MAX_LONG_SIDE:
+            scale = MAX_LONG_SIDE / max(w, h)
+            vis = cv2.resize(vis, (int(w * scale), int(h * scale)),
+                            interpolation=cv2.INTER_AREA)
+
         MINIMAP_W, MINIMAP_H, PAD = 320, 160, 12
-        vis = cv2.resize(frame_bgr, (DISPLAY_W, DISPLAY_H), interpolation=cv2.INTER_AREA)
         map_small = cv2.resize(map_canvas, (MINIMAP_W, MINIMAP_H))
-        x0, y0 = DISPLAY_W - MINIMAP_W - PAD, PAD
+        y0, x0 = PAD, vis.shape[1] - MINIMAP_W - PAD
         vis[y0:y0 + MINIMAP_H, x0:x0 + MINIMAP_W] = map_small
+
         return vis
 
     def frames(self):

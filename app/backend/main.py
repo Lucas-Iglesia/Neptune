@@ -5,6 +5,7 @@ import cv2, json, time
 from homography.processor import HomographyProcessor
 
 VIDEO_PATH = "assets/input.mov"
+JPEG_QUALITY = 50    
 
 app = Flask(__name__)
 CORS(app)
@@ -14,7 +15,12 @@ hp = HomographyProcessor(VIDEO_PATH)
 # ---------- MJPEG stream : /api/video ----------
 def mjpeg_stream():
     for frame in hp.frames():
-        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+
+        ok, buf = cv2.imencode(
+            ".jpg",
+            frame,
+            [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY]
+        )
         if not ok:
             continue
         jpg = buf.tobytes()

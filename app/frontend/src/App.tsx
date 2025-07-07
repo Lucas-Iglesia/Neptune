@@ -27,32 +27,30 @@ export default function App() {
     setAlerts((prev) => prev.filter((a) => a.id !== id));
 
   return (
-    <main className="flex flex-col pt-4 pb-4 gap-8 px-8">
-      <header className="flex flex-col items-center gap-9">
+    <div className="app">
+      <header className="header">
         <Logo />
       </header>
 
-      <div className="flex flex-row w-full gap-8 items-stretch">
-        {/* Video */}
-        <section className="flex-grow">
+      <div className="main-row">
+        {/* Vidéo */}
+        <section className="video-container">
           <VideoPlayer />
         </section>
 
-        {/* Alerts Panel */}
-        <aside className="w-[400px] relative">
-          <div className="absolute inset-0 flex flex-col gap-4 bg-white/5 p-4 rounded-lg overflow-y-auto">
-            <button
-              onClick={() => setAlerts([])}
-              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-            >
-              Clear Alerts
-            </button>
+        {/* Alertes */}
+        <aside className="alerts-panel">
+          <button className="clear-btn" onClick={() => setAlerts([])}>
+            Clear Alerts
+          </button>
+          <div className="alerts-scroll">
             {alerts.map((a) => (
-              <Alert key={a.id} {...a} onDelete={handleDelete} />
+              <Alert key={a.id} {...a} onDelete={(id) =>
+                setAlerts((p) => p.filter((x) => x.id !== id))} />
             ))}
           </div>
         </aside>
       </div>
-    </main>
+    </div>
   );
 }
