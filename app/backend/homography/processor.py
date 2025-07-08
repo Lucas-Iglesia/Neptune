@@ -11,19 +11,27 @@ from transformers import AutoImageProcessor, DFineForObjectDetection
 DEVICE                  = "cuda" if torch.cuda.is_available() else "cpu"
 SEG_MODEL_PATH          = "water-detection/model-v2/nwd-v2.pt"
 DFINE_MODEL_ID          = "ustc-community/dfine-xlarge-obj2coco"
-CONF_THRES              = 0.4
+CONF_THRES              = 0.4  # Reduced confidence threshold
 MAP_W_PX, MAP_H_PX      = 400, 200
-UPDATE_EVERY            = 1000          # update homography every N frames
+UPDATE_EVERY            = 30           # update homography every N frames
 MIN_WATER_AREA_PX       = 5_000
-DISPLAY_W, DISPLAY_H    = 1280, 720    # server‑side resize before streaming
-MINIMAP_W, MINIMAP_H    = 320, 160
+DISPLAY_W, DISPLAY_H    = 1920, 1080   # Full HD resolution
+MINIMAP_W, MINIMAP_H    = 480, 240     # Minimap plus grosse
 PAD                     = 12
 MAX_DISTANCE_PX         = 100
 MAX_DISAPPEARED_FRAMES  = 300
 UNDERWATER_THRESHOLD    = 15           # frames without detection
 SURFACE_THRESHOLD       = 5            # consecutive detections to be surfaced
-DANGER_TIME_THRESHOLD   = 10           # seconds underwater before danger alert
+DANGER_TIME_THRESHOLD   = 5            # seconds underwater before danger alert
 DANGER_COLOR = (0, 0, 255)
+
+# Enhanced colors for different states
+SURFACE_COLORS = [
+    (0, 255, 0), (0, 255, 128), (128, 255, 0), (0, 255, 255), (128, 255, 128)
+]
+UNDERWATER_COLORS = [
+    (255, 0, 0), (255, 128, 0), (255, 0, 128), (128, 0, 255), (255, 64, 64)
+]
 
 class BoxStub:
     """Lightweight container so we can reuse DFINE code unmodified."""
@@ -39,7 +47,7 @@ def _euclidean(p, q):
 
 
 class UnderwaterPersonTracker:
-    """Tracker aware of surface / underwater status & danger scoring."""
+    """Enhanced tracker for underwater detection with danger alerts."""
 
     def __init__(self,
                  max_distance: int = MAX_DISTANCE_PX,
@@ -49,6 +57,11 @@ class UnderwaterPersonTracker:
         self.next_id: int = 1
         self.tracks: dict[int, dict] = {}
         self.frame_rate = 30.0  # updated later from video metadata
+        self.alert_callback = None  # Callback for alerts
+
+    def set_alert_callback(self, callback):
+        """Set callback function for danger alerts"""
+        self.alert_callback = callback
 
     def _new_track(self, center, ts):
         return {
@@ -57,14 +70,15 @@ class UnderwaterPersonTracker:
             "history": [center],
             "status": "surface",  # surface | underwater
             "frames_underwater": 0,
-            "frames_surface": 0,
-            "last_surface_ts": ts,
-            "under_start_ts": None,
-            "under_duration": 0.0,
-            "submersion_events": [],
+            "frames_on_surface": 0,
+            "last_seen_surface": ts,
+            "underwater_start_time": None,
+            "underwater_duration": 0.0,
+            "submersion_events": [],  # List of (start_time, duration) tuples
             "danger_alert_sent": False,
-            "danger_score": 0,
-            "distance_shore": 0.0,
+            "voice_alert_sent": False,  # Track if voice alert was sent
+            "dangerosity_score": 0,
+            "distance_from_shore": 0.0,
             "dive_point": None,
         }
 
@@ -76,13 +90,14 @@ class UnderwaterPersonTracker:
             tr = self.tracks[tid]
             tr["disappeared"] += 1
             tr["frames_underwater"] += 1
-            tr["frames_surface"] = 0
+            tr["frames_on_surface"] = 0
             if tr["frames_underwater"] >= UNDERWATER_THRESHOLD and tr["status"] != "underwater":
                 tr["status"] = "underwater"
-                tr["under_start_ts"] = ts
+                tr["underwater_start_time"] = ts
                 tr["dive_point"] = tr["center"]
                 tr["danger_alert_sent"] = False
-                print(f"🌊 Person {tid} UNDERWATER")
+                tr["voice_alert_sent"] = False
+                print(f"🌊 Person {tid} went UNDERWATER")
 
         if not detections:
             lost = []
@@ -90,16 +105,24 @@ class UnderwaterPersonTracker:
                 _mark_missing(tid)
                 # trigger danger alert if needed
                 tr = self.tracks[tid]
-                if (tr["status"] == "underwater" and tr["under_start_ts"]
-                        and ts - tr["under_start_ts"] > DANGER_TIME_THRESHOLD
+                if (tr["status"] == "underwater" and tr["underwater_start_time"]
+                        and ts - tr["underwater_start_time"] > DANGER_TIME_THRESHOLD
                         and not tr["danger_alert_sent"]):
-                    print(
-                        f"🚨 DANGER ALERT: Person {tid} underwater for {ts - tr['under_start_ts']:.1f}s")
+                    # Send alert via callback
+                    if self.alert_callback:
+                        self.alert_callback({
+                            "track_id": tid,
+                            "type": "danger",
+                            "message": f"Personne {tid} sous l'eau depuis {ts - tr['underwater_start_time']:.1f}s",
+                            "duration": ts - tr["underwater_start_time"],
+                            "timestamp": ts
+                        })
+                    print(f"🚨 DANGER ALERT: Person {tid} underwater for {ts - tr['underwater_start_time']:.1f}s")
                     tr["danger_alert_sent"] = True
                 if tr["disappeared"] > self.max_disappeared:
-                    if tr["status"] == "underwater" and tr["under_start_ts"]:
+                    if tr["status"] == "underwater" and tr["underwater_start_time"]:
                         tr["submersion_events"].append(
-                            (tr["under_start_ts"], ts - tr["under_start_ts"]))
+                            (tr["underwater_start_time"], ts - tr["underwater_start_time"]))
                     lost.append(tid)
             for tid in lost:
                 del self.tracks[tid]
@@ -129,16 +152,28 @@ class UnderwaterPersonTracker:
             tr["center"] = det_centers[j]
             tr["disappeared"] = 0
             tr["history"].append(det_centers[j])
-            tr["frames_surface"] += 1
+            tr["last_seen_surface"] = ts
+            tr["frames_on_surface"] += 1
             tr["frames_underwater"] = 0
-            # surfaced ?
-            if tr["status"] == "underwater" and tr["frames_surface"] >= SURFACE_THRESHOLD:
-                dur = ts - (tr["under_start_ts"] or ts)
-                tr["submersion_events"].append((tr["under_start_ts"], dur))
+            
+            # Check if person surfaced
+            if (tr["status"] == "underwater" and 
+                tr["frames_on_surface"] >= SURFACE_THRESHOLD):
+                # Person surfaced
+                if tr["underwater_start_time"]:
+                    duration = ts - tr["underwater_start_time"]
+                    tr["submersion_events"].append((tr["underwater_start_time"], duration))
+                    tr["underwater_duration"] = 0
+                    print(f"🏄 Person {tid} SURFACED after {duration:.1f}s underwater")
+
                 tr["status"] = "surface"
-                tr["under_start_ts"] = None
-                tr["under_duration"] = 0
+                tr["underwater_start_time"] = None
                 tr["danger_alert_sent"] = False
+                tr["voice_alert_sent"] = False  # Reset voice alert when surfacing
+
+            # Keep history manageable
+            if len(tr["history"]) > 50:
+                tr["history"] = tr["history"][-50:]
             assign[j] = tid
             used_t.add(i)
             used_d.add(j)
@@ -157,16 +192,24 @@ class UnderwaterPersonTracker:
         gone = []
         for tid in list(self.tracks):
             tr = self.tracks[tid]
-            if tr["status"] == "underwater" and tr["under_start_ts"]:
-                tr["under_duration"] = ts - tr["under_start_ts"]
-                if tr["under_duration"] > DANGER_TIME_THRESHOLD and not tr["danger_alert_sent"]:
-                    print(
-                        f"🚨 DANGER ALERT: Person {tid} underwater for {tr['under_duration']:.1f}s!")
+            if tr["status"] == "underwater" and tr["underwater_start_time"]:
+                tr["underwater_duration"] = ts - tr["underwater_start_time"]
+                if tr["underwater_duration"] > DANGER_TIME_THRESHOLD and not tr["danger_alert_sent"]:
+                    # Send alert via callback
+                    if self.alert_callback:
+                        self.alert_callback({
+                            "track_id": tid,
+                            "type": "danger",
+                            "message": f"Personne {tid} sous l'eau depuis {tr['underwater_duration']:.1f}s",
+                            "duration": tr["underwater_duration"],
+                            "timestamp": ts
+                        })
+                    print(f"🚨 DANGER ALERT: Person {tid} underwater for {tr['underwater_duration']:.1f}s!")
                     tr["danger_alert_sent"] = True
             if tr["disappeared"] > self.max_disappeared:
-                if tr["status"] == "underwater" and tr["under_start_ts"]:
+                if tr["status"] == "underwater" and tr["underwater_start_time"]:
                     tr["submersion_events"].append(
-                        (tr["under_start_ts"], ts - tr["under_start_ts"]))
+                        (tr["underwater_start_time"], ts - tr["underwater_start_time"]))
                 gone.append(tid)
         for tid in gone:
             del self.tracks[tid]
@@ -182,8 +225,8 @@ class UnderwaterPersonTracker:
     def danger_tracks(self):
         now = time.time()
         return {tid: tr for tid, tr in self.tracks.items()
-                if tr["status"] == "underwater" and tr["under_start_ts"]
-                and now - tr["under_start_ts"] > DANGER_TIME_THRESHOLD}
+                if tr["status"] == "underwater" and tr["underwater_start_time"]
+                and now - tr["underwater_start_time"] > DANGER_TIME_THRESHOLD}
 
 @torch.inference_mode()
 def detect_people(frame_bgr, processor, model):
@@ -202,42 +245,128 @@ def detect_people(frame_bgr, processor, model):
     return people
 
 
-def _danger_score(tr, ts, dist_shore):
-    score = int(dist_shore * 20)
-    if tr["frames_underwater"] > 0:
-        prog = min(tr["frames_underwater"] / UNDERWATER_THRESHOLD, 1.0)
-        score += 10 + int(prog * 20)  # 10‑30
-        if tr["status"] == "underwater":
-            score += 20
-            if tr["under_start_ts"]:
-                t = ts - tr["under_start_ts"]
-                score += 40 if t > DANGER_TIME_THRESHOLD else int((t / DANGER_TIME_THRESHOLD) * 40)
-        excess = tr["frames_underwater"] - UNDERWATER_THRESHOLD
-        if excess > 0:
+def calculate_dangerosity_score(track, frame_timestamp, distance_from_shore=0):
+    """
+    Calculate dangerosity score from 0 to 100
+    
+    Args:
+        track: Person track data
+        frame_timestamp: Current frame timestamp
+        distance_from_shore: Distance from shore (0-1, where 1 is farthest)
+    
+    Returns:
+        int: Dangerosity score (0-100)
+    """
+    score = 0
+
+    # Base score for distance from shore (always applies)
+    score += int(distance_from_shore * 20)
+
+    # Check if person is diving or underwater based on frames underwater
+    if track['frames_underwater'] > 0:
+        # Person is diving or underwater - calculate progressive score
+        
+        # Base diving score (10-30 pts based on frames underwater)
+        diving_progress = min(track['frames_underwater'] / UNDERWATER_THRESHOLD, 1.0)
+        score += int(10 + (diving_progress * 20))  # 10-30 pts
+        
+        # If officially underwater, add more points
+        if track['status'] == 'underwater':
+            score += 20  # Additional 20 pts for being officially underwater
+            
+            # Time underwater factor (0-40 pts)
+            if track['underwater_start_time']:
+                t = frame_timestamp - track['underwater_start_time']
+                if t > DANGER_TIME_THRESHOLD:
+                    score += 40
+                else:
+                    score += int((t / DANGER_TIME_THRESHOLD) * 40)
+        
+        # Frames underwater excess factor (0-10 pts)
+        if track['frames_underwater'] > UNDERWATER_THRESHOLD:
+            excess = track['frames_underwater'] - UNDERWATER_THRESHOLD
             score += min(10, excess // 10)
+
     return min(100, score)
 
 
-def _color_from_score(s):
-    if s <= 20:
-        r = int(144 * (s / 20.0))
-        return (r, 100 + int(138 * (s / 20.0)), r)
-    if s <= 40:
-        ratio = (s - 20) / 20.0
-        return (int(144 * (1 - ratio)), 238 + int(17 * ratio), 144 + int(111 * ratio))
-    if s <= 60:
-        ratio = (s - 40) / 20.0
-        return (0, 255 - int(90 * ratio), 255)
-    if s <= 80:
-        ratio = (s - 60) / 20.0
-        return (0, 165 * (1 - ratio), 255)
-    # 80‑100
-    ratio = (s - 80) / 20.0
-    return (0, 0, 255 - int(116 * ratio))
+def get_color_by_dangerosity(score):
+    """
+    Get color based on dangerosity score with gradient
+    
+    Args:
+        score: Dangerosity score (0-100)
+    
+    Returns:
+        tuple: BGR color tuple
+    """
+    if score <= 20:
+        # Green gradient (dark to light green)
+        ratio = score / 20.0
+        b = int(144 * ratio)
+        g = int(100 + (138 * ratio))
+        r = int(144 * ratio)
+        return (b, g, r)
+    
+    elif score <= 40:
+        # Light green to yellow
+        ratio = (score - 20) / 20.0
+        b = int(144 * (1 - ratio))
+        g = int(238 + (17 * ratio))
+        r = int(144 + (111 * ratio))
+        return (b, g, r)
+    
+    elif score <= 60:
+        # Yellow to orange
+        ratio = (score - 40) / 20.0
+        b = 0
+        g = int(255 - (90 * ratio))
+        r = 255
+        return (b, g, r)
+    
+    elif score <= 80:
+        # Orange to red
+        ratio = (score - 60) / 20.0
+        b = 0
+        g = int(165 * (1 - ratio))
+        r = 255
+        return (b, g, r)
+    
+    else:
+        # Red to dark red
+        ratio = (score - 80) / 20.0
+        b = 0
+        g = 0
+        r = int(255 - (116 * ratio))
+        return (b, g, r)
 
 
-def _dist_from_shore(x, y):
-    return max(0.0, min(1.0, (MAP_H_PX - y) / MAP_H_PX))
+def calculate_distance_from_shore(x, y, map_width, map_height):
+    """
+    Calculate normalized distance from shore (0-1)
+    Assumes shore is at the bottom of the map
+    
+    Args:
+        x, y: Position coordinates
+        map_width, map_height: Map dimensions
+    
+    Returns:
+        float: Distance from shore (0-1, where 1 is farthest)
+    """
+    # Simple distance from bottom edge (shore)
+    distance_from_bottom = (map_height - y) / map_height
+    return max(0, min(1, distance_from_bottom))
+
+
+def get_color_for_track(track_id, status, is_danger=False):
+    """Get color for track based on status and danger level"""
+    if is_danger:
+        return DANGER_COLOR
+    elif status == 'underwater':
+        return UNDERWATER_COLORS[track_id % len(UNDERWATER_COLORS)]
+    else:
+        return SURFACE_COLORS[track_id % len(SURFACE_COLORS)]
+
 
 class HomographyProcessor:
     """Drop‑in replacement that streams frames with underwater danger logic."""
@@ -267,6 +396,19 @@ class HomographyProcessor:
         self.frame_idx = 0
         self.start_ts = time.time()
         self.map_base = np.full((MAP_H_PX, MAP_W_PX, 3), 80, np.uint8)
+        # alerts
+        self.alert_queue = []
+        self.tracker.set_alert_callback(self._on_alert)
+
+    def _on_alert(self, alert_data):
+        """Callback for receiving alerts from tracker"""
+        self.alert_queue.append(alert_data)
+
+    def get_alerts(self):
+        """Get and clear the alert queue"""
+        alerts = self.alert_queue.copy()
+        self.alert_queue.clear()
+        return alerts
 
     def frames(self):
         while True:
@@ -319,7 +461,7 @@ class HomographyProcessor:
                     continue
                 p = np.array([[[tr["dive_point"][0], tr["dive_point"][1]]]], np.float32)
                 x, y = cv2.perspectiveTransform(p, self.H)[0, 0]
-                col = DANGER_COLOR if tid in danger else _color_from_score(tr["danger_score"])
+                col = DANGER_COLOR if tid in danger else get_color_by_dangerosity(tr["dangerosity_score"])
                 cv2.drawMarker(canvas, (int(x), int(y)), col, cv2.MARKER_CROSS, 10, 2)
 
             # active tracks → canvas & update danger score
@@ -327,17 +469,17 @@ class HomographyProcessor:
                 cx, cy = tr["center"]
                 x, y = cv2.perspectiveTransform(np.float32([[[cx, cy]]]), self.H)[0, 0]
                 if 0 <= x < MAP_W_PX and 0 <= y < MAP_H_PX:
-                    dist_shore = _dist_from_shore(x, y)
-                    tr["distance_shore"] = dist_shore
-                    tr["danger_score"] = _danger_score(tr, ts, dist_shore)
-                    colour = _color_from_score(tr["danger_score"])
+                    dist_shore = calculate_distance_from_shore(x, y, MAP_W_PX, MAP_H_PX)
+                    tr["distance_from_shore"] = dist_shore
+                    tr["dangerosity_score"] = calculate_dangerosity_score(tr, ts, dist_shore)
+                    colour = get_color_by_dangerosity(tr["dangerosity_score"])
                     danger_pulse = tid in danger
                     r = 6 if tr["status"] == "underwater" else 4
                     cv2.circle(canvas, (int(x), int(y)), r, colour, -1)
                     if danger_pulse:
                         pulse = 8 + int(2 * math.sin(self.frame_idx * 0.3))
                         cv2.circle(canvas, (int(x), int(y)), pulse, DANGER_COLOR, 2)
-                    cv2.putText(canvas, f"{tid}({tr['danger_score']})", (int(x) + 8, int(y) - 8),
+                    cv2.putText(canvas, f"{tid}({tr['dangerosity_score']})", (int(x) + 8, int(y) - 8),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.3, colour, 1)
                 # track history polyline
                 if len(tr["history"]) > 1:
@@ -347,7 +489,7 @@ class HomographyProcessor:
                         if 0 <= u < MAP_W_PX and 0 <= v < MAP_H_PX:
                             pts.append((int(u), int(v)))
                     if len(pts) > 1:
-                        cv2.polylines(canvas, [np.int32(pts)], False, _color_from_score(tr["danger_score"]), 1)
+                        cv2.polylines(canvas, [np.int32(pts)], False, get_color_by_dangerosity(tr["dangerosity_score"]), 1)
 
             # update scores for non‑active tracks (still underwater, etc.)
             for tid, tr in self.tracker.tracks.items():
@@ -356,9 +498,9 @@ class HomographyProcessor:
                 cx, cy = tr["center"]
                 x, y = cv2.perspectiveTransform(np.float32([[[cx, cy]]]), self.H)[0, 0]
                 if 0 <= x < MAP_W_PX and 0 <= y < MAP_H_PX:
-                    dist_shore = _dist_from_shore(x, y)
-                    tr["distance_shore"] = dist_shore
-                    tr["danger_score"] = _danger_score(tr, ts, dist_shore)
+                    dist_shore = calculate_distance_from_shore(x, y, MAP_W_PX, MAP_H_PX)
+                    tr["distance_from_shore"] = dist_shore
+                    tr["dangerosity_score"] = calculate_dangerosity_score(tr, ts, dist_shore)
 
             # main visual
             vis = frame.copy()
@@ -369,18 +511,18 @@ class HomographyProcessor:
                 x1, y1 = int(cx + w / 2), int(cy + h / 2)
                 if tid != -1 and tid in self.tracker.tracks:
                     tr = self.tracker.tracks[tid]
-                    colour = _color_from_score(tr["danger_score"])
+                    colour = get_color_by_dangerosity(tr["dangerosity_score"])
                     thick = 3 if tid in danger else 2
                     cv2.rectangle(vis, (x0, y0), (x1, y1), colour, thick)
-                    text = f"ID:{tid} ({tr['status'].upper()}) ({tr['danger_score']})"
-                    if tr["status"] == "underwater" and tr["under_start_ts"]:
-                        text += f" | {ts - tr['under_start_ts']:.1f}s"
+                    text = f"ID:{tid} ({tr['status'].upper()}) ({tr['dangerosity_score']})"
+                    if tr["status"] == "underwater" and tr["underwater_start_time"]:
+                        text += f" | {ts - tr['underwater_start_time']:.1f}s"
                     cv2.putText(vis, text, (x0, y0 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, colour, 2)
                     # danger bar
                     bar_w = int(w * 0.8)
                     bar_x = x0 + int((w - bar_w) / 2)
                     bar_y = y1 + 35
-                    fill = int(tr["danger_score"] / 100 * bar_w)
+                    fill = int(tr["dangerosity_score"] / 100 * bar_w)
                     if fill > 0:
                         cv2.rectangle(vis, (bar_x, bar_y), (bar_x + fill, bar_y + 6), colour, -1)
 
@@ -399,8 +541,8 @@ class HomographyProcessor:
             max_score = 0
             max_tid = None
             for tid, tr in self.tracker.tracks.items():
-                if tr["danger_score"] > max_score:
-                    max_score, max_tid = tr["danger_score"], tid
+                if tr["dangerosity_score"] > max_score:
+                    max_score, max_tid = tr["dangerosity_score"], tid
             stat_txt = f"Active:{act_c} Underwater:{und_c}"
             if max_tid is not None:
                 stat_txt += f" Max:{max_score}(ID:{max_tid})"
@@ -412,7 +554,7 @@ class HomographyProcessor:
             lg_x, lg_y, lg_w, lg_h = 10, DISPLAY_H - 80, 200, 20
             cv2.rectangle(vis_small, (lg_x, lg_y), (lg_x + lg_w, lg_y + lg_h), (50, 50, 50), -1)
             for i in range(lg_w):
-                col = _color_from_score(i / lg_w * 100)
+                col = get_color_by_dangerosity(i / lg_w * 100)
                 cv2.line(vis_small, (lg_x + i, lg_y), (lg_x + i, lg_y + lg_h), col, 1)
             cv2.putText(vis_small, "0", (lg_x, lg_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
             cv2.putText(vis_small, "100", (lg_x + lg_w - 25, lg_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)

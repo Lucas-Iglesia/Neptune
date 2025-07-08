@@ -1,3 +1,4 @@
+from __future__ import annotations
 import cv2
 import numpy as np
 import torch
@@ -8,13 +9,13 @@ import time
 from collections import defaultdict
 import math
 from datetime import datetime
-import pyttsx3
 import threading
 from gtts import gTTS
 import pygame
 import io
 import tempfile
 import os
+import re
 
 # === Config ===
 VIDEO_PATH = "video/rozel-15-full-hd-cut.mov"
@@ -27,59 +28,78 @@ MIN_WATER_AREA_PX = 5_000
 UPDATE_EVERY = 30  # frames
 
 # === Voice Alert Setup ===
-def speak_alert(message):
-    """Function to speak alert message using gTTS for better French pronunciation"""
+# Create audio directory if it doesn't exist
+AUDIO_DIR = "audio_alerts"
+os.makedirs(AUDIO_DIR, exist_ok=True)
+
+# Pre-generated audio files
+AUDIO_FILES = {
+    "danger": "alerte_danger.mp3",
+    "test": "test_alerte.mp3"
+}
+
+def generate_audio_files():
+    """Generate audio files in advance at startup"""
+    messages = {
+        "danger": "Alerte ! Baigneur en danger.",
+        "test": "Test de l'alerte vocale. Système de surveillance aquatique opérationnel."
+    }
+    
+    print("🎵 Génération des fichiers audio...")
+    
+    for key, filename in AUDIO_FILES.items():
+        filepath = os.path.join(AUDIO_DIR, filename)
+        
+        # Skip if file already exists
+        if os.path.exists(filepath):
+            print(f"✅ Fichier déjà existant: {filepath}")
+            continue
+        
+        try:
+            # Generate audio with French settings
+            tts = gTTS(text=messages[key], lang='fr', slow=True, tld='fr')
+            tts.save(filepath)
+            print(f"💾 Fichier audio généré: {filepath}")
+            
+        except Exception as e:
+            print(f"❌ Erreur lors de la génération de {filename}: {e}")
+    
+    print("🎵 Génération des fichiers audio terminée")
+
+def speak_alert(alert_type="danger"):
+    """Function to play pre-generated audio files"""
     def _speak():
         try:
-            # Use gTTS for better French pronunciation
-            tts = gTTS(text=message, lang='fr', slow=False)
+            # Get the pre-generated audio file
+            filename = AUDIO_FILES.get(alert_type, AUDIO_FILES["danger"])
+            filepath = os.path.join(AUDIO_DIR, filename)
             
-            # Create a temporary file
-            with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp_file:
-                tts.save(tmp_file.name)
-                
-                # Initialize pygame mixer if not already done
-                if not pygame.mixer.get_init():
-                    pygame.mixer.init()
-                
-                # Play the audio
-                pygame.mixer.music.load(tmp_file.name)
-                pygame.mixer.music.play()
-                
-                # Wait for playback to finish
-                while pygame.mixer.music.get_busy():
-                    time.sleep(0.1)
-                
-                # Clean up
-                pygame.mixer.music.unload()
-                os.unlink(tmp_file.name)
+            # Check if file exists
+            if not os.path.exists(filepath):
+                print(f"❌ Fichier audio manquant: {filepath}")
+                print(f"📢 ALERTE VOCALE: {alert_type}")
+                return
+            
+            # Initialize pygame mixer if not already done
+            if not pygame.mixer.get_init():
+                pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+            
+            # Play the pre-generated audio
+            pygame.mixer.music.load(filepath)
+            pygame.mixer.music.play()
+            
+            print(f"🔊 Lecture du fichier audio: {filename}")
+            
+            # Wait for playback to finish
+            while pygame.mixer.music.get_busy():
+                time.sleep(0.1)
+            
+            # Clean up mixer
+            pygame.mixer.music.unload()
                 
         except Exception as e:
-            print(f"Erreur gTTS: {e}")
-            # Fallback to pyttsx3
-            try:
-                engine = pyttsx3.init()
-                
-                # Try to get French voice if available
-                voices = engine.getProperty('voices')
-                french_voice = None
-                for voice in voices:
-                    if 'fr' in voice.id.lower() or 'french' in voice.name.lower():
-                        french_voice = voice.id
-                        break
-                
-                if french_voice:
-                    engine.setProperty('voice', french_voice)
-                
-                # Optimize speech settings for clarity
-                engine.setProperty('rate', 140)
-                engine.setProperty('volume', 0.9)
-                
-                engine.say(message)
-                engine.runAndWait()
-                
-            except Exception as e2:
-                print(f"Erreur pyttsx3 fallback: {e2}")
+            print(f"❌ Erreur lors de la lecture audio: {e}")
+            print(f"📢 ALERTE VOCALE: {alert_type}")
     
     # Run speech in separate thread to not block main program
     thread = threading.Thread(target=_speak, daemon=True)
@@ -113,6 +133,9 @@ dfine = DFineForObjectDetection.from_pretrained(
     MODEL_ID,
     torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
 ).to(DEVICE).eval()
+
+# Generate audio files at startup
+generate_audio_files()
 
 # === Utils ===
 class BoxStub:
@@ -515,6 +538,32 @@ DANGER_COLOR = (0, 0, 255)  # Bright red for danger
 # Initialize underwater tracker
 tracker = UnderwaterPersonTracker()
 
+# === Alert popup system ===
+class AlertPopup:
+    def __init__(self, duration=5.0):
+        self.alerts = []  # List of (message, timestamp, duration)
+        self.default_duration = duration
+    
+    def add_alert(self, message, duration=None):
+        """Add a new alert to display"""
+        if duration is None:
+            duration = self.default_duration
+        timestamp = time.time()
+        self.alerts.append((message, timestamp, duration))
+    
+    def update(self):
+        """Remove expired alerts"""
+        current_time = time.time()
+        self.alerts = [(msg, ts, dur) for msg, ts, dur in self.alerts 
+                      if current_time - ts < dur]
+    
+    def get_active_alerts(self):
+        """Get currently active alerts"""
+        return [msg for msg, ts, dur in self.alerts]
+
+# Initialize alert popup system
+alert_popup = AlertPopup(duration=7.0)  # 7 seconds duration
+
 # === Video setup ===
 cap = cv2.VideoCapture(str(Path(VIDEO_PATH)))
 if not cap.isOpened():
@@ -597,8 +646,8 @@ while True:
                 show_water_detection = not show_water_detection
                 print(f"Water detection display: {'ON' if show_water_detection else 'OFF'}")
             elif key == ord('t') or key == ord('T'):  # T to test voice alert
-                test_message = "Test de l'alerte vocale. Système de surveillance aquatique opérationnel."
-                speak_alert(test_message)
+                speak_alert("test")  # Use pre-generated test alert
+                alert_popup.add_alert("🔊 Test d'alerte vocale", duration=5.0)
                 print("🔊 Test d'alerte vocale déclenché")
             continue
 
@@ -614,15 +663,10 @@ while True:
         for track_id, track in danger_tracks.items():
             if not track['voice_alert_sent']:
                 # Person just entered danger status - send voice alert immediately
-                duration = track['underwater_duration'] if 'underwater_duration' in track else 0
+                popup_message = f"DANGER: Baigneur {track_id} en danger!"
                 
-                # Create short, direct French alert message
-                if duration > 0:
-                    message = f"Alerte ! Baigneur en danger."
-                else:
-                    message = f"Alerte ! Baigneur en danger."
-                
-                speak_alert(message)
+                speak_alert("danger")  # Use pre-generated danger alert
+                alert_popup.add_alert(popup_message, duration=8.0)  # 8 seconds for danger alerts
                 track['voice_alert_sent'] = True
                 print(f"🔊 VOICE ALERT: Person {track_id} danger status - alert sent")
 
@@ -786,6 +830,36 @@ while True:
         x0, y0 = DISPLAY_W - MINIMAP_W - PADDING_PX, PADDING_PX
         frame_resized[y0:y0 + MINIMAP_H, x0:x0 + MINIMAP_W] = map_resized
 
+        # === Draw alert popup under minimap ===
+        alert_popup.update()  # Remove expired alerts
+        active_alerts = alert_popup.get_active_alerts()
+        
+        if active_alerts:
+            # Position popup under minimap
+            popup_x = DISPLAY_W - MINIMAP_W - PADDING_PX
+            popup_y = PADDING_PX + MINIMAP_H + 10  # 10px gap under minimap
+            popup_width = MINIMAP_W
+            popup_height = len(active_alerts) * 30 + 20  # 30px per alert + padding
+            
+            # Draw semi-transparent background
+            overlay = frame_resized.copy()
+            cv2.rectangle(overlay, (popup_x, popup_y), 
+                         (popup_x + popup_width, popup_y + popup_height), 
+                         (0, 0, 0), -1)  # Black background
+            cv2.addWeighted(overlay, 0.7, frame_resized, 0.3, 0, frame_resized)
+            
+            # Draw border
+            cv2.rectangle(frame_resized, (popup_x, popup_y), 
+                         (popup_x + popup_width, popup_y + popup_height), 
+                         (0, 0, 255), 2)  # Red border
+            
+            # Draw alert messages
+            for i, alert_msg in enumerate(active_alerts):
+                text_y = popup_y + 20 + (i * 30)
+                cv2.putText(frame_resized, alert_msg, 
+                           (popup_x + 10, text_y), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
         # Enhanced status display
         active_count = len(active_tracks)
         underwater_count = len(underwater_tracks)
@@ -898,6 +972,36 @@ while True:
                     x0, y0 = DISPLAY_W - MINIMAP_W - PADDING_PX, PADDING_PX
                     frame_resized_paused[y0:y0 + MINIMAP_H, x0:x0 + MINIMAP_W] = map_resized
 
+                # === Draw alert popup under minimap (even when paused) ===
+                alert_popup.update()  # Remove expired alerts
+                active_alerts = alert_popup.get_active_alerts()
+                
+                if active_alerts:
+                    # Position popup under minimap
+                    popup_x = DISPLAY_W - MINIMAP_W - PADDING_PX
+                    popup_y = PADDING_PX + MINIMAP_H + 10  # 10px gap under minimap
+                    popup_width = MINIMAP_W
+                    popup_height = len(active_alerts) * 30 + 20  # 30px per alert + padding
+                    
+                    # Draw semi-transparent background
+                    overlay = frame_resized_paused.copy()
+                    cv2.rectangle(overlay, (popup_x, popup_y), 
+                                 (popup_x + popup_width, popup_y + popup_height), 
+                                 (0, 0, 0), -1)  # Black background
+                    cv2.addWeighted(overlay, 0.7, frame_resized_paused, 0.3, 0, frame_resized_paused)
+                    
+                    # Draw border
+                    cv2.rectangle(frame_resized_paused, (popup_x, popup_y), 
+                                 (popup_x + popup_width, popup_y + popup_height), 
+                                 (0, 0, 255), 2)  # Red border
+                    
+                    # Draw alert messages
+                    for i, alert_msg in enumerate(active_alerts):
+                        text_y = popup_y + 20 + (i * 30)
+                        cv2.putText(frame_resized_paused, alert_msg, 
+                                   (popup_x + 10, text_y), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
                 # Add status text
                 if 'active_count' in locals():
                     status_text = f"Active: {active_count} | Underwater: {underwater_count if 'underwater_count' in locals() else 0}"
@@ -951,8 +1055,8 @@ while True:
         show_water_detection = not show_water_detection
         print(f"Water detection display: {'ON' if show_water_detection else 'OFF'}")
     elif key == ord('t') or key == ord('T'):  # T to test voice alert
-        test_message = "Test de l'alerte vocale. Système de surveillance aquatique opérationnel."
-        speak_alert(test_message)
+        speak_alert("test")  # Use pre-generated test alert
+        alert_popup.add_alert("🔊 Test d'alerte vocale", duration=5.0)
         print("🔊 Test d'alerte vocale déclenché")
 
 print("\nFinal Statistics:")
