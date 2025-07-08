@@ -1,3 +1,4 @@
+from __future__ import annotations
 import cv2
 import numpy as np
 import torch
@@ -8,7 +9,6 @@ import time
 from collections import defaultdict
 import math
 from datetime import datetime
-import pyttsx3
 import threading
 from gtts import gTTS
 import pygame
@@ -17,8 +17,8 @@ import tempfile
 import os
 
 # === Config ===
-VIDEO_PATH = "video/rozel-15-full-hd-cut.mov"
-SEG_MODEL_PATH = "model/nwd-v2.pt"
+VIDEO_PATH = "homography/data/IMG_6863.MOV"
+SEG_MODEL_PATH = "water-detection/model-v2/nwd-v2.pt"
 MODEL_ID = "ustc-community/dfine-xlarge-obj2coco"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 CONF_THRES = 0.55

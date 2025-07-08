@@ -5,7 +5,7 @@ import Logo from "./components/Logo";
 
 export default function App() {
   const [alerts, setAlerts] = useState<
-    { id: number; type: "red" | "yellow" | "green"; text: string }[]
+    { id: number; type: "red" | "yellow" | "green"; text: string; playAudio?: boolean }[]
   >([]);
 
   useEffect(() => {
@@ -45,8 +45,7 @@ export default function App() {
           </button>
           <div className="alerts-scroll">
             {alerts.map((a) => (
-              <Alert key={a.id} {...a} onDelete={(id) =>
-                setAlerts((p) => p.filter((x) => x.id !== id))} />
+              <Alert key={a.id} {...a} onDelete={handleDelete} />
             ))}
           </div>
         </aside>
