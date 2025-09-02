@@ -28,7 +28,7 @@ jobs:
           pyinstaller --onefile demo/Demo-5/detection.py
 
       - name: Upload build
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: detection
-          path: dist/detection
+          path: dist/
