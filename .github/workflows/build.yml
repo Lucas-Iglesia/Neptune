@@ -25,7 +25,7 @@ jobs:
 
       - name: Build executable
         run: |
-          pyinstaller --onefile demo/Demo-5/detection.py
+          pyinstaller --onefile --clean --noconfirm demo/Demo-5/detection.py
 
       - name: Upload build
         uses: actions/upload-artifact@v4
