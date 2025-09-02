@@ -20,6 +20,8 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils
           python -m pip install --upgrade pip
           pip install -r demo/Demo-5/requirements.txt
 
