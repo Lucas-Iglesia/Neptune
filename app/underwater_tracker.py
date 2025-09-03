@@ -25,29 +25,31 @@ class UnderwaterPersonTracker:
         self.max_disappeared = max_disappeared
         self.frame_rate = 30
         
-        # Seuils configurables
+        # Seuils configurables - EXACTEMENT LES MÊMES VALEURS QUE DEMO-5
         self.underwater_threshold = 15  # frames pour considérer sous l'eau
-        self.surface_threshold = 5      # frames pour considérer en surface
+        self.surface_threshold = 5      # frames pour considérer en surface  
         self.danger_time_threshold = 5  # secondes sous l'eau avant danger
 
     def _init_track(self, center, timestamp):
-        """Initialiser une nouvelle track"""
+        """Initialiser une nouvelle track avec tous les paramètres avancés"""
         return {
             'center': center,
             'disappeared': 0,
             'history': [center],
-            'status': 'surface',
+            'status': 'surface',  # 'surface', 'underwater', 'unknown'
             'frames_underwater': 0,
             'frames_on_surface': 0,
             'last_seen_surface': timestamp,
             'underwater_start_time': None,
             'underwater_duration': 0,
-            'submersion_events': [],
+            'submersion_events': [],  # Liste de (start_time, duration) tuples
             'danger_alert_sent': False,
-            'voice_alert_sent': False,
+            'voice_alert_sent': False,  # Nouveau: tracker si l'alerte vocale a été envoyée pour cet événement de danger
             'dangerosity_score': 0,
             'distance_from_shore': 0.0,
-            'dive_point': None
+            'dive_point': None,  # Point où la personne a plongé
+            'underwater_threshold': self.underwater_threshold,  # Seuil pour cette track
+            'surface_threshold': self.surface_threshold
         }
 
     def update(self, detections, frame_timestamp=None):
@@ -77,19 +79,22 @@ class UnderwaterPersonTracker:
                 # Vérifier si la personne est sous l'eau
                 if track['frames_underwater'] >= self.underwater_threshold:
                     if track['status'] != 'underwater':
+                        # Vient de passer sous l'eau
                         track['status'] = 'underwater'
                         track['underwater_start_time'] = frame_timestamp
                         track['dive_point'] = track['center']
                         track['danger_alert_sent'] = False
-                        track['voice_alert_sent'] = False
+                        track['voice_alert_sent'] = False  # Reset pour nouvel événement de plongée
+                        print(f"🌊 Personne {track_id} est passée SOUS L'EAU")
 
                     # Calculer la durée sous l'eau
                     if track['underwater_start_time']:
                         track['underwater_duration'] = frame_timestamp - track['underwater_start_time']
 
-                        # Vérifier le seuil de danger
+                        # Vérifier le seuil de danger (alerte console uniquement)
                         if (track['underwater_duration'] > self.danger_time_threshold and 
                             not track['danger_alert_sent']):
+                            print(f"🚨 ALERTE DANGER: Personne {track_id} sous l'eau depuis {track['underwater_duration']:.1f}s!")
                             track['danger_alert_sent'] = True
 
                 # Supprimer les tracks perdues depuis trop longtemps
@@ -155,15 +160,17 @@ class UnderwaterPersonTracker:
                 # Vérifier si la personne a refait surface
                 if (track['status'] == 'underwater' and 
                     track['frames_on_surface'] >= self.surface_threshold):
+                    # Personne a refait surface
                     if track['underwater_start_time']:
                         duration = frame_timestamp - track['underwater_start_time']
                         track['submersion_events'].append((track['underwater_start_time'], duration))
                         track['underwater_duration'] = 0
+                        print(f"🏄 Personne {track_id} a REFAIT SURFACE après {duration:.1f}s sous l'eau")
 
                     track['status'] = 'surface'
                     track['underwater_start_time'] = None
                     track['danger_alert_sent'] = False
-                    track['voice_alert_sent'] = False
+                    track['voice_alert_sent'] = False  # Reset l'alerte vocale quand on refait surface
 
                 # Garder l'historique gérable
                 if len(track['history']) > 50:
@@ -192,17 +199,22 @@ class UnderwaterPersonTracker:
                 
                 if track['frames_underwater'] >= self.underwater_threshold:
                     if track['status'] != 'underwater':
+                        # Vient de passer sous l'eau
                         track['status'] = 'underwater'
                         track['underwater_start_time'] = frame_timestamp
                         track['dive_point'] = track['center']
                         track['danger_alert_sent'] = False
-                        track['voice_alert_sent'] = False
+                        track['voice_alert_sent'] = False  # Reset pour nouvel événement de plongée
+                        print(f"🌊 Personne {track_id} est passée SOUS L'EAU")
 
+                    # Calculer la durée sous l'eau
                     if track['underwater_start_time']:
                         track['underwater_duration'] = frame_timestamp - track['underwater_start_time']
 
+                        # Vérifier le seuil de danger (alerte console uniquement)
                         if (track['underwater_duration'] > self.danger_time_threshold and 
                             not track['danger_alert_sent']):
+                            print(f"🚨 ALERTE DANGER: Personne {track_id} sous l'eau depuis {track['underwater_duration']:.1f}s!")
                             track['danger_alert_sent'] = True
 
         # Supprimer les tracks perdues depuis trop longtemps
@@ -218,37 +230,44 @@ class UnderwaterPersonTracker:
         for track_id in to_remove:
             del self.tracks[track_id]
 
-        # Mettre à jour les scores de dangerosité
-        for track_id, track in self.tracks.items():
-            track['dangerosity_score'] = self.calculate_dangerosity_score(track, frame_timestamp)
+        # Note: Les scores de dangerosité sont maintenant calculés dans app.py
+        # pour avoir accès aux bonnes coordonnées et distance_from_shore
 
         return assignments
 
     def calculate_dangerosity_score(self, track, frame_timestamp):
-        """Calculer le score de dangerosité (0-100)"""
+        """Calculate dangerosity score from 0 to 100 - EXACTLY same as Demo-5"""
         score = 0
 
-        # Score de base pour la distance du rivage
+        # Base score for distance from shore (always applies)
         distance_from_shore = track.get('distance_from_shore', 0)
         score += int(distance_from_shore * 20)
 
-        # Score pour la plongée/sous l'eau
+        # Check if person is diving or underwater based on frames underwater
         if track['frames_underwater'] > 0:
+            # Person is diving or underwater - calculate progressive score
+            
+            # Base diving score (10-30 pts based on frames underwater)
             diving_progress = min(track['frames_underwater'] / self.underwater_threshold, 1.0)
             score += int(10 + (diving_progress * 20))  # 10-30 pts
             
+            # If officially underwater, add more points
             if track['status'] == 'underwater':
-                score += 20  # 20 pts supplémentaires pour être officiellement sous l'eau
+                score += 20  # Additional 20 pts for being officially underwater
                 
-                # Facteur temps sous l'eau (0-40 pts)
+                # Time underwater factor (0-40 pts)
                 if track['underwater_start_time']:
                     t = frame_timestamp - track['underwater_start_time']
                     if t > self.danger_time_threshold:
                         score += 40
+                        # Unique alert - EXACTLY like Demo-5
+                        if not track['danger_alert_sent']:
+                            print(f"🚨 DANGER ALERT: Person underwater for {t:.1f}s!")
+                            track['danger_alert_sent'] = True
                     else:
                         score += int((t / self.danger_time_threshold) * 40)
             
-            # Facteur d'excès de frames sous l'eau (0-10 pts)
+            # Frames underwater excess factor (0-10 pts)
             if track['frames_underwater'] > self.underwater_threshold:
                 excess = track['frames_underwater'] - self.underwater_threshold
                 score += min(10, excess // 10)
@@ -265,15 +284,18 @@ class UnderwaterPersonTracker:
         return {tid: track for tid, track in self.tracks.items()
                 if track['status'] == 'underwater'}
 
-    def get_danger_tracks(self):
-        """Obtenir les tracks des personnes en danger"""
-        current_time = time.time()
+    def get_danger_tracks(self, frame_timestamp=None):
+        """Obtenir les tracks des personnes en danger (plus de 5 secondes sous l'eau)"""
+        if frame_timestamp is None:
+            frame_timestamp = time.time()
+        
         danger_tracks = {}
         for tid, track in self.tracks.items():
             if (track['status'] == 'underwater' and 
                 track['underwater_start_time'] and
-                (current_time - track['underwater_start_time']) > self.danger_time_threshold):
+                (frame_timestamp - track['underwater_start_time']) > self.danger_time_threshold):
                 danger_tracks[tid] = track
+                print(f"🚨 DANGER: Person {tid} underwater for {frame_timestamp - track['underwater_start_time']:.1f}s")
         return danger_tracks
 
 def get_color_by_dangerosity(score):
