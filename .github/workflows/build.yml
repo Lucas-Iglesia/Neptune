@@ -7,7 +7,10 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
 
     steps:
       - name: Checkout repo
@@ -20,26 +23,18 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y binutils
           python -m pip install --upgrade pip
           pip install -r app/requirements.txt
-
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf /usr/local/lib/android
-          sudo apt-get clean
-          df -h
+          pip install pyinstaller
 
       - name: Build executable
         run: |
-          pyinstaller --clean --noconfirm app/neptune_app.py
+          pyinstaller --onefile app/neptune_app.py
 
       - name: Upload build
         uses: actions/upload-artifact@v4
         with:
-          name: neptune_app-linux
-          path: dist/neptune_app
+          name: neptune_app-${{ matrix.os }}
+          path: |
+            dist/neptune_app
+            dist/neptune_app.exe
