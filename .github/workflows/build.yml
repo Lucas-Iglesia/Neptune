@@ -29,7 +29,7 @@ jobs:
 
       - name: Build executable
         run: |
-          pyinstaller --onefile app/neptune_app.py
+          pyinstaller neptune_app.spec
 
       - name: Upload build
         uses: actions/upload-artifact@v4
