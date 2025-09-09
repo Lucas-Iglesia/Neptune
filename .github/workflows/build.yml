@@ -21,15 +21,25 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Set pip to no-cache (reduce disk usage)
+        run: |
+          python -c "import os,sys; os.environ['PIP_NO_CACHE_DIR']='1'; print('PIP_NO_CACHE_DIR=1')"
+
+      - name: Install dependencies (no cache)
         run: |
           python -m pip install --upgrade pip
-          pip install -r app/requirements.txt
-          pip install pyinstaller
+          python -m pip install --no-cache-dir -r app/requirements.txt
+
+      - name: Free space / clean caches
+        run: |
+          sudo apt-get clean || true
+          sudo rm -rf /var/lib/apt/lists/* || true
+          rm -rf ~/.cache/pip || true
+          df -h || true
 
       - name: Build executable
         run: |
-          pyinstaller --clean neptune_app.spec
+          pyinstaller --clean --onefile --noconfirm --distpath dist neptune_app.spec
 
       - name: Upload build
         uses: actions/upload-artifact@v4
