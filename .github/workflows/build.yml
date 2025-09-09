@@ -27,20 +27,46 @@ jobs:
           pip install -r app/requirements.txt
           pip install pyinstaller
 
+      - name: Prepare build environment
+        run: |
+          # Show disk usage for debugging
+          df -h || true
+          # purge pip cache to free space
+          pip cache purge || true
+
       - name: Build executable (Linux / macOS)
         if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
         run: |
-          pyinstaller --onefile --add-data "app/model/nwd-v2.pt:app/model" app/neptune_app.py
+          # Use runner temp for work/spec/dist to reduce workspace disk usage
+          DIST_DIR="${{ runner.temp }}/dist"
+          WORK_DIR="${{ runner.temp }}/pyi_work"
+          SPEC_DIR="${{ runner.temp }}/pyi_spec"
+          mkdir -p "$DIST_DIR" "$WORK_DIR" "$SPEC_DIR"
+          rm -rf build dist neptune_app.spec || true
+          pyinstaller --onefile --clean \
+            --add-data "app/model/nwd-v2.pt:app/model" \
+            --distpath "$DIST_DIR" --workpath "$WORK_DIR" --specpath "$SPEC_DIR" \
+            app/neptune_app.py
 
       - name: Build executable (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          pyinstaller --onefile --add-data "app\model\nwd-v2.pt;app\model" app\neptune_app.py
+          # Windows uses ';' as the add-data separator
+          DIST_DIR="${{ runner.temp }}/dist"
+          WORK_DIR="${{ runner.temp }}/pyi_work"
+          SPEC_DIR="${{ runner.temp }}/pyi_spec"
+          mkdir -p "%DIST_DIR%" "%WORK_DIR%" "%SPEC_DIR%"
+          rmdir /s /q build || true
+          rmdir /s /q dist || true
+          pyinstaller --onefile --clean \
+            --add-data "app\model\nwd-v2.pt;app\model" \
+            --distpath "%DIST_DIR%" --workpath "%WORK_DIR%" --specpath "%SPEC_DIR%" \
+            app\neptune_app.py
 
       - name: Upload build
         uses: actions/upload-artifact@v4
         with:
           name: neptune_app-${{ matrix.os }}
           path: |
-            dist/neptune_app
-            dist/neptune_app.exe
+            ${{ runner.temp }}/dist/neptune_app
+            ${{ runner.temp }}/dist/neptune_app.exe
