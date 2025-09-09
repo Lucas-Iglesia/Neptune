@@ -50,18 +50,18 @@ jobs:
 
       - name: Build executable (Windows)
         if: matrix.os == 'windows-latest'
+        shell: bash
         run: |
           # Windows uses ';' as the add-data separator
           DIST_DIR="${{ runner.temp }}/dist"
           WORK_DIR="${{ runner.temp }}/pyi_work"
           SPEC_DIR="${{ runner.temp }}/pyi_spec"
-          mkdir -p "%DIST_DIR%" "%WORK_DIR%" "%SPEC_DIR%"
-          rmdir /s /q build || true
-          rmdir /s /q dist || true
+          mkdir -p "$DIST_DIR" "$WORK_DIR" "$SPEC_DIR"
+          rm -rf build dist neptune_app.spec || true
           pyinstaller --onefile --clean \
-            --add-data "app\model\nwd-v2.pt;app\model" \
-            --distpath "%DIST_DIR%" --workpath "%WORK_DIR%" --specpath "%SPEC_DIR%" \
-            app\neptune_app.py
+            --add-data "app/model/nwd-v2.pt;app/model" \
+            --distpath "$DIST_DIR" --workpath "$WORK_DIR" --specpath "$SPEC_DIR" \
+            app/neptune_app.py
 
       - name: Upload build
         uses: actions/upload-artifact@v4
