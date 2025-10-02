@@ -1,4 +1,4 @@
-name: CI + Allure (PR previews & Pages)
+name: CI + Allure (PR previews on gh-pages)
 
 on:
   pull_request:
@@ -32,14 +32,13 @@ jobs:
           git lfs install
           git lfs pull
 
-      - name: Debug tree & verify project dir
+      - name: Debug tree
         run: |
           echo "Workspace: $GITHUB_WORKSPACE"
           ls -la
           echo "----"
           ls -la water-detection || true
-          echo "----"
-          test -d "$PROJECT_DIR" || (echo "❌ Dossier $PROJECT_DIR introuvable"; exit 1)
+          test -d "$PROJECT_DIR" || (echo "❌ $PROJECT_DIR introuvable"; exit 1)
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -53,17 +52,9 @@ jobs:
           pip install -r "$PROJECT_DIR/requirements.txt"
           pip install allure-pytest
 
-      - name: Run tests (write Allure results)
+      - name: Run tests (Allure results)
         working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          pytest --alluredir=allure-results
-
-      - name: Upload Allure results (artifact)
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: allure-results
-          path: ${{ env.PROJECT_DIR }}/allure-results
+        run: pytest --alluredir=allure-results
 
       - name: Install Allure CLI
         run: |
@@ -77,33 +68,32 @@ jobs:
       - name: Build Allure HTML
         if: ${{ always() }}
         working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          allure generate allure-results -o allure-report --clean
+        run: allure generate allure-results -o allure-report --clean
 
-      - name: Upload Allure HTML (artifact)
+      - name: Upload Allure report as artifact (optional)
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: allure-report
           path: ${{ env.PROJECT_DIR }}/allure-report
 
-  deploy-pr:
-    name: Deploy PR preview to gh-pages/pr-<PR>
+  deploy:
+    name: Publish Allure to gh-pages
     needs: test
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download Allure HTML
+      - name: Download Allure HTML built by 'test'
         uses: actions/download-artifact@v4
         with:
           name: allure-report
           path: ./_site
 
-      - name: Publish to gh-pages/pr-<PR_NUMBER>
+      - name: Publish (PR preview subfolder)
+        if: github.event_name == 'pull_request'
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -113,35 +103,12 @@ jobs:
           keep_files: true
           commit_message: "Allure PR #${{ github.event.pull_request.number }}"
 
-      - name: Print preview URL
-        run: |
-          echo "Preview URL:"
-          echo "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/pr-${{ github.event.pull_request.number }}/"
-
-  deploy-main:
-    name: Deploy main Allure to GitHub Pages (/)
-    needs: test
-    if: github.ref == 'refs/heads/main' && needs.test.result == 'success'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download Allure HTML
-        uses: actions/download-artifact@v4
+      - name: Publish (main → root)
+        if: github.ref == 'refs/heads/main' && needs.test.result == 'success'
+        uses: peaceiris/actions-gh-pages@v3
         with:
-          name: allure-report
-          path: ./site
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./site
-
-      - name: Deploy to Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./_site
+          keep_files: true
+          commit_message: "Allure main build"
