@@ -1,8 +1,8 @@
-name: CI + Allure + Vercel previews
+name: CI + Allure + Vercel
 
 on:
   pull_request:
-    branches: ["main"]
+    branches: ["main", "dev"]
   push:
     branches: ["dev", "main"]
 
@@ -10,34 +10,57 @@ permissions:
   contents: read
 
 env:
+  # Path to your test project (adjust if needed)
   PROJECT_DIR: water-detection/CI
   ALLURE_VERSION: 2.29.0
   CUDA_VISIBLE_DEVICES: "-1"
 
 jobs:
   test:
+    name: Run tests & build Allure
     runs-on: ubuntu-latest
-    outputs:
-      allure-dir: ${{ steps.pack.outputs.dir }}
+
     steps:
-      - uses: actions/checkout@v4
-        with: { lfs: true }
-      - run: git lfs pull
+      # 1) Checkout repository (+ LFS for weights/images)
+      - name: Checkout (with LFS)
+        uses: actions/checkout@v4
+        with:
+          lfs: true
 
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
+      - name: Pull LFS objects
+        run: |
+          git lfs install
+          git lfs pull
 
-      - name: Install deps
+      # 2) Quick sanity of tree (helps if path is wrong)
+      - name: Debug tree
+        run: |
+          echo "Workspace: $GITHUB_WORKSPACE"
+          ls -la
+          echo "----"
+          ls -la water-detection || true
+          test -d "$PROJECT_DIR" || (echo "❌ $PROJECT_DIR not found"; exit 1)
+
+      # 3) Python setup
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 4) Install deps (Torch CPU-only + your reqs + allure plugin)
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision torchaudio
           pip install -r "$PROJECT_DIR/requirements.txt"
           pip install allure-pytest
 
-      - name: Run pytest (Allure)
+      # 5) Run pytest and write Allure results
+      - name: Run tests (Allure results)
         working-directory: ${{ env.PROJECT_DIR }}
         run: pytest --alluredir=allure-results
 
+      # 6) Install Allure CLI to build static HTML report
       - name: Install Allure CLI
         run: |
           sudo apt-get update
@@ -45,79 +68,114 @@ jobs:
           curl -sL -o allure.zip "https://github.com/allure-framework/allure2/releases/download/${ALLURE_VERSION}/allure-${ALLURE_VERSION}.zip"
           sudo unzip -q allure.zip -d /opt/
           sudo ln -sf "/opt/allure-${ALLURE_VERSION}/bin/allure" /usr/local/bin/allure
+          allure --version
 
+      # 7) Build Allure static site
       - name: Build Allure HTML
+        if: ${{ always() }}          # build even if tests fail, to inspect failures
         working-directory: ${{ env.PROJECT_DIR }}
         run: allure generate allure-results -o allure-report --clean
 
-      - uses: actions/upload-artifact@v4
+      # 8) Upload built HTML as artifact for the next job (Vercel deploy)
+      - name: Upload Allure HTML (artifact)
         if: ${{ always() }}
+        uses: actions/upload-artifact@v4
         with:
           name: allure-report
           path: ${{ env.PROJECT_DIR }}/allure-report
 
   vercel:
+    name: Deploy Allure to Vercel
     needs: test
     runs-on: ubuntu-latest
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-    steps:
-      - uses: actions/checkout@v4
+    outputs:
+      preview_url: ${{ steps.deploy_preview.outputs.url }}
+      prod_url: ${{ steps.deploy_prod.outputs.url }}
 
-      - name: Download built Allure HTML
+    steps:
+      - name: Checkout (for consistency)
+        uses: actions/checkout@v4
+
+      # 1) Download the built Allure static site from previous job
+      - name: Download Allure HTML artifact
         uses: actions/download-artifact@v4
         with:
           name: allure-report
           path: ./allure-report
 
+      # 2) Prepare Vercel project link (NO --project in CLI v48+)
+      #    We create .vercel/project.json including orgId & projectId from secrets
+      - name: Link Vercel project (write .vercel/project.json)
+        run: |
+          mkdir -p allure-report/.vercel
+          cat > allure-report/.vercel/project.json <<'JSON'
+          {
+            "orgId": "${{ secrets.VERCEL_ORG_ID }}",
+            "projectId": "${{ secrets.VERCEL_PROJECT_ID }}"
+          }
+          JSON
+
+      # 3) Install Vercel CLI
       - name: Install Vercel CLI
         run: npm i -g vercel@latest
 
-      - name: Deploy preview to Vercel
+      # 4) PRs → Preview deploy
+      - name: Deploy Preview to Vercel
+        id: deploy_preview
         if: github.event_name == 'pull_request'
-        id: vercel_preview
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          # crée un preview deployment et récupère l'URL
-          url=$(vercel deploy ./allure-report \
-            --token "$VERCEL_TOKEN" \
-            --scope "$VERCEL_ORG_ID" \
-            --project "$VERCEL_PROJECT_ID" \
-            --yes --prebuilt --name allure-pr-${{ github.event.pull_request.number }})
-          echo "url=$url" >> $GITHUB_OUTPUT
+          # Deploy the prebuilt static site; --cwd must point to the folder with index.html and .vercel/project.json
+          url="$(vercel deploy \
+            --cwd allure-report \
+            --prebuilt \
+            --yes \
+            --token "$VERCEL_TOKEN")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Preview URL: $url"
 
-      - name: Deploy production to Vercel
+      # 5) main → Production deploy
+      - name: Deploy Production to Vercel
+        id: deploy_prod
         if: github.ref == 'refs/heads/main'
-        id: vercel_prod
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          url=$(vercel deploy ./allure-report \
-            --token "$VERCEL_TOKEN" \
-            --scope "$VERCEL_ORG_ID" \
-            --project "$VERCEL_PROJECT_ID" \
-            --yes --prebuilt --prod --name allure-main)
-          echo "url=$url" >> $GITHUB_OUTPUT
-          echo "Prod URL: $url"
+          url="$(vercel deploy \
+            --cwd allure-report \
+            --prebuilt \
+            --yes \
+            --prod \
+            --token "$VERCEL_TOKEN")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Production URL: $url"
 
-  comment:
+  comment-url:
+    name: Comment preview URL on PR
     needs: vercel
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/github-script@v7
+      # Create or update a sticky comment on the PR with the preview URL
+      - name: Comment Allure Preview URL
+        uses: actions/github-script@v7
         with:
           script: |
             const pr = context.payload.pull_request;
             const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            // récupère la sortie du job 'vercel'
-            const url = '${{ needs.vercel.outputs.url }}' || 'N/A';
-            const marker = '<!-- allure-vercel -->';
-            const body = `${marker}\n🔎 Allure preview (Vercel): ${url}\n`;
+            const repo  = context.repo.repo;
+            const url = '${{ needs.vercel.outputs.preview_url }}' || 'N/A';
 
-            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number: pr.number, per_page: 100 });
-            const existing = comments.find(c => c.user.type === 'Bot' && c.body?.includes(marker));
+            const marker = '<!-- allure-vercel-preview -->';
+            const body = `${marker}\n🔎 **Allure preview (Vercel):** ${url}\n`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner, repo, issue_number: pr.number, per_page: 100
+            });
+            const existing = comments.find(c => c.user?.type === 'Bot' && c.body?.includes(marker));
+
             if (existing) {
               await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
             } else {
