@@ -53,7 +53,7 @@ AUDIO = {
 
 # === Configuration de la détection ===
 DETECTION = {
-    'conf_threshold': 0.55,      # Seuil de confiance pour la détection
+    'conf_threshold': 0.65,      # Seuil de confiance pour la détection
     'max_distance': 100,         # Distance maximale pour l'association des tracks
     'max_disappeared': 300,      # Frames avant suppression d'un track
     'underwater_threshold': 15,  # Frames pour considérer une personne sous l'eau
