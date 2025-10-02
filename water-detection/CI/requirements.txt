@@ -1,0 +1,6 @@
+ultralytics
+numpy
+pillow
+pytest
+allure-pytest
+opencv-python

@@ -20,7 +20,7 @@ from neptune_ui import NeptuneUI
 from neptune_config import *
 
 # === Config ===
-VIDEO_PATH = "video/rozel-15-full-hd-cut.mov"
+VIDEO_PATH = "video/rozel-15fps-fullhd.mp4"
 SEG_MODEL_PATH = "model/nwd-v2.pt"
 MODEL_ID = "ustc-community/dfine-xlarge-obj2coco"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"

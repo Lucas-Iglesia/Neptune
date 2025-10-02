@@ -1,0 +1,131 @@
+name: CI + Allure (PR previews & Pages)
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["dev", "main"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  test:
+    name: Test NWSD + Build Allure
+    runs-on: ubuntu-latest
+    env:
+      CUDA_VISIBLE_DEVICES: "-1"
+
+    steps:
+      - name: Checkout repository (with LFS)
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Pull LFS
+        run: git lfs pull
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision torchaudio
+          pip install -r CI/requirements.txt
+          pip install allure-pytest
+
+      - name: Run tests (Allure results)
+        working-directory: CI
+        run: pytest --alluredir=allure-results
+
+      - name: Upload Allure results (artifact)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: CI/allure-results
+
+      - name: Install Allure CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y default-jre unzip
+          ALLURE_VERSION=2.29.0
+          curl -sL -o allure.zip https://github.com/allure-framework/allure2/releases/download/${ALLURE_VERSION}/allure-${ALLURE_VERSION}.zip
+          sudo unzip -q allure.zip -d /opt/
+          sudo ln -sf /opt/allure-${ALLURE_VERSION}/bin/allure /usr/local/bin/allure
+          allure --version
+
+      - name: Build Allure HTML
+        if: ${{ always() }}
+        working-directory: CI
+        run: allure generate allure-results -o allure-report --clean
+
+      - name: Upload Allure HTML (artifact)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: CI/allure-report
+
+  deploy-pr:
+    name: Deploy PR preview to gh-pages/pr-<PR>
+    needs: test
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download built Allure HTML
+        uses: actions/download-artifact@v4
+        with:
+          name: allure-report
+          path: ./_site
+
+      - name: Publish to gh-pages subfolder
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./_site
+          destination_dir: pr-${{ github.event.pull_request.number }}
+          keep_files: true
+          commit_message: "Allure PR #${{ github.event.pull_request.number }}"
+
+      - name: PR preview URL
+        run: |
+          echo "Preview: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/pr-${{ github.event.pull_request.number }}/"
+
+  deploy-main:
+    name: Deploy main Allure to GitHub Pages (/)
+    needs: test
+    if: github.ref == 'refs/heads/main' && needs.test.result == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Allure HTML
+        uses: actions/download-artifact@v4
+        with:
+          name: allure-report
+          path: ./site
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./site
+
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
