@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 env:
   PROJECT_DIR: tests/
@@ -82,7 +83,7 @@ jobs:
             cp -r _prev-allure-report/history "${PROJECT_DIR}/allure-results/"
             echo "Seeded history from previous run."
           else
-            echo "No previous history found (first run on main?)."
+            echo "No previous history found."
           fi
 
       - name: Build Allure HTML
