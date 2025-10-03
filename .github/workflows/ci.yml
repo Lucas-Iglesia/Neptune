@@ -173,32 +173,32 @@ jobs:
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Production URL: $url"
 
-  comment-url:
-    name: Comment preview URL on PR
-    needs: vercel
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+  # comment-url:
+  #   name: Comment preview URL on PR
+  #   needs: vercel
+  #   if: github.event_name == 'pull_request'
+  #   runs-on: ubuntu-latest
 
-    steps:
-      - name: Comment Allure Preview URL
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const pr = context.payload.pull_request;
-            const owner = context.repo.owner;
-            const repo  = context.repo.repo;
-            const url = '${{ needs.vercel.outputs.preview_url }}' || 'N/A';
+  #   steps:
+  #     - name: Comment Allure Preview URL
+  #       uses: actions/github-script@v7
+  #       with:
+  #         script: |
+  #           const pr = context.payload.pull_request;
+  #           const owner = context.repo.owner;
+  #           const repo  = context.repo.repo;
+  #           const url = '${{ needs.vercel.outputs.preview_url }}' || 'N/A';
 
-            const marker = '<!-- allure-vercel-preview -->';
-            const body = `${marker}\n🔎 **Allure preview (Vercel):** ${url}\n`;
+  #           const marker = '<!-- allure-vercel-preview -->';
+  #           const body = `${marker}\n🔎 **Allure preview (Vercel):** ${url}\n`;
 
-            const { data: comments } = await github.rest.issues.listComments({
-              owner, repo, issue_number: pr.number, per_page: 100
-            });
-            const existing = comments.find(c => c.user?.type === 'Bot' && c.body?.includes(marker));
+  #           const { data: comments } = await github.rest.issues.listComments({
+  #             owner, repo, issue_number: pr.number, per_page: 100
+  #           });
+  #           const existing = comments.find(c => c.user?.type === 'Bot' && c.body?.includes(marker));
 
-            if (existing) {
-              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
-            } else {
-              await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
-            }
+  #           if (existing) {
+  #             await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+  #           } else {
+  #             await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
+  #           }
