@@ -6,8 +6,9 @@ on:
   push:
     branches: ["dev", "main"]
 
+# Permissions globales : lecture/écriture pour permettre de pousser l'historique
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 env:
@@ -64,32 +65,48 @@ jobs:
           sudo ln -sf "/opt/allure-${ALLURE_VERSION}/bin/allure" /usr/local/bin/allure
           allure --version
 
-      - name: Download previous Allure report artifact (main)
-        if: github.ref == 'refs/heads/main'
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          workflow: ci-vercel.yml
-          workflow_conclusion: success
-          branch: main
-          name: allure-report
-          path: ./_prev-allure-report
-          if_no_artifact_found: ignore
-
-      - name: Seed Allure history (if available)
+      # === Fetch + seed Allure history depuis la branche dédiée ===
+      - name: Fetch previous history branch
         if: github.ref == 'refs/heads/main'
         run: |
-          if [ -d "_prev-allure-report/history" ]; then
-            mkdir -p "${PROJECT_DIR}/allure-results/history"
-            cp -r _prev-allure-report/history "${PROJECT_DIR}/allure-results/"
-            echo "Seeded history from previous run."
+          git fetch origin allure-history:allure-history || true
+          mkdir -p _prev-history
+          if git ls-tree -r --name-only allure-history | grep -q '^history/'; then
+            git checkout allure-history -- history
+            mv history _prev-history/history
+            echo "Pulled history from allure-history branch."
           else
-            echo "No previous history found."
+            echo "No history found yet."
+          fi
+
+      - name: Seed Allure history (branch)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          if [ -d "_prev-history/history" ]; then
+            mkdir -p "${PROJECT_DIR}/allure-results/history"
+            cp -r _prev-history/history "${PROJECT_DIR}/allure-results/"
+            echo "Seeded history from branch."
+          else
+            echo "No previous history available."
           fi
 
       - name: Build Allure HTML
         if: ${{ always() }}
         working-directory: ${{ env.PROJECT_DIR }}
         run: allure generate allure-results -o allure-report --clean
+
+      # === Publie le nouvel historique dans allure-history ===
+      - name: Publish new history to branch
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B allure-history
+          rm -rf history
+          cp -r "${PROJECT_DIR}/allure-report/history" ./history
+          git add history
+          git commit -m "Update Allure history [skip ci]" || echo "No changes"
+          git push -f origin allure-history
 
       - name: Upload Allure HTML (artifact)
         if: ${{ always() }}
@@ -135,7 +152,6 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          # Deploy the static site by pointing --cwd to the folder that contains index.html and .vercel/project.json
           url="$(vercel deploy \
             --cwd allure-report \
             --yes \
