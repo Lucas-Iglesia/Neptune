@@ -8,8 +8,8 @@ import allure
 from model.yolo_infer import predict_mask
 
 ROOT = Path(__file__).resolve().parents[1]
-IMG_DIR = ROOT / "images"
-MSK_DIR = ROOT / "masks"
+IMG_DIR = ROOT / "nwsd/images"
+MSK_DIR = ROOT / "nwsd/masks"
 
 IOU_THRESHOLD = 0.80
 

@@ -2,8 +2,8 @@ from pathlib import Path
 
 # Racine = dossier CI (parent de tests)
 ROOT = Path(__file__).resolve().parents[1]
-IMG_DIR = ROOT / "images"
-MSK_DIR = ROOT / "masks"
+IMG_DIR = ROOT / "nwsd/images"
+MSK_DIR = ROOT / "nwsd/masks"
 
 def _list_pairs():
     imgs = {p.stem: p for p in IMG_DIR.glob("*") if p.suffix.lower() in {".jpg",".jpeg",".png",".tif",".tiff",".bmp"}}
