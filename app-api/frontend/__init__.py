@@ -1,1 +1,0 @@
-"""Neptune Frontend - Interface utilisateur"""
