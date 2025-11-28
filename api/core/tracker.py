@@ -20,32 +20,46 @@ DANGER_TIME_THRESHOLD = ALERTS['danger_threshold']
 class UnderwaterPersonTracker:
     """Tracker spécialisé pour la détection de noyade"""
     
-    def __init__(self, max_distance=None, max_disappeared=None):
+    def __init__(self, max_distance=None, max_disappeared=None, 
+                 underwater_threshold=None, surface_threshold=None, 
+                 danger_threshold=None):
         """
         Initialise le tracker
         
         Args:
             max_distance: Distance maximale pour associer une détection à un track
             max_disappeared: Nombre max de frames avant suppression d'un track
+            underwater_threshold: Nombre de frames pour considérer une personne sous l'eau
+            surface_threshold: Nombre de frames pour considérer une personne en surface
+            danger_threshold: Durée en secondes sous l'eau pour déclencher une alerte
         """
         self.next_id = 1
         self.tracks = {}
         self.max_distance = max_distance or DETECTION['max_distance']
         self.max_disappeared = max_disappeared or DETECTION['max_disappeared']
+        self.underwater_threshold = underwater_threshold or UNDERWATER_THRESHOLD
+        self.surface_threshold = surface_threshold or SURFACE_THRESHOLD
+        self.danger_threshold = danger_threshold or DANGER_TIME_THRESHOLD
     
-    def _init_track(self, center, ts):
+    def _init_track(self, center, ts, width=100.0, height=200.0, confidence=0.9):
         """
         Initialise un nouveau track
         
         Args:
             center: Position (x, y) du centre
             ts: Timestamp
+            width: Width of bounding box
+            height: Height of bounding box
+            confidence: Detection confidence
         
         Returns:
             dict: Nouveau track initialisé
         """
         return {
             'center': center,
+            'width': width,
+            'height': height,
+            'confidence': confidence,
             'disappeared': 0,
             'history': [center],
             'status': 'surface',
@@ -80,16 +94,17 @@ class UnderwaterPersonTracker:
             return self._handle_no_detections(frame_ts)
         
         det_centers = [(float(d.xywh[0][0]), float(d.xywh[0][1])) for d in detections]
+        det_dims = [(float(d.xywh[0][2]), float(d.xywh[0][3]), float(d.conf[0])) for d in detections]
         
         # Premier cas: pas de tracks existants
         if not self.tracks:
-            return self._create_initial_tracks(det_centers, frame_ts)
+            return self._create_initial_tracks(det_centers, det_dims, frame_ts)
         
         # Association détections <-> tracks
-        assignments = self._assign_detections_to_tracks(det_centers, frame_ts)
+        assignments = self._assign_detections_to_tracks(det_centers, det_dims, frame_ts)
         
         # Création de nouveaux tracks pour détections non assignées
-        self._create_new_tracks_for_unassigned(det_centers, assignments, frame_ts)
+        self._create_new_tracks_for_unassigned(det_centers, det_dims, assignments, frame_ts)
         
         # Gestion des tracks non assignés (disparus)
         self._handle_disappeared_tracks(frame_ts)
@@ -111,7 +126,7 @@ class UnderwaterPersonTracker:
             t['frames_underwater'] += 1
             t['frames_on_surface'] = 0
             
-            if t['frames_underwater'] >= UNDERWATER_THRESHOLD:
+            if t['frames_underwater'] >= self.underwater_threshold:
                 if t['status'] != 'underwater':
                     t['status'] = 'underwater'
                     t['underwater_start_time'] = frame_ts
@@ -122,7 +137,7 @@ class UnderwaterPersonTracker:
                 
                 if t['underwater_start_time']:
                     t['underwater_duration'] = frame_ts - t['underwater_start_time']
-                    if t['underwater_duration'] > DANGER_TIME_THRESHOLD and not t['danger_alert_sent']:
+                    if t['underwater_duration'] > self.danger_threshold and not t['danger_alert_sent']:
                         print(f"DANGER ALERT: Person {tid} underwater {t['underwater_duration']:.1f}s")
                         t['danger_alert_sent'] = True
             
@@ -137,17 +152,18 @@ class UnderwaterPersonTracker:
         
         return {}
     
-    def _create_initial_tracks(self, det_centers, frame_ts):
+    def _create_initial_tracks(self, det_centers, det_dims, frame_ts):
         """Crée les premiers tracks"""
         assignments = {}
         for i, c in enumerate(det_centers):
             tid = self.next_id
             self.next_id += 1
-            self.tracks[tid] = self._init_track(c, frame_ts)
+            w, h, conf = det_dims[i]
+            self.tracks[tid] = self._init_track(c, frame_ts, w, h, conf)
             assignments[i] = tid
         return assignments
     
-    def _assign_detections_to_tracks(self, det_centers, frame_ts):
+    def _assign_detections_to_tracks(self, det_centers, det_dims, frame_ts):
         """Assigne les détections aux tracks existants"""
         track_ids = list(self.tracks.keys())
         track_centers = [self.tracks[tid]['center'] for tid in track_ids]
@@ -174,8 +190,12 @@ class UnderwaterPersonTracker:
             tid = track_ids[i]
             t = self.tracks[tid]
             
-            # Mise à jour du track
+            # Mise à jour du track avec nouvelles dimensions
             t['center'] = det_centers[j]
+            w, h, conf = det_dims[j]
+            t['width'] = w
+            t['height'] = h
+            t['confidence'] = conf
             t['disappeared'] = 0
             t['history'].append(det_centers[j])
             t['last_seen_surface'] = frame_ts
@@ -183,7 +203,7 @@ class UnderwaterPersonTracker:
             t['frames_underwater'] = 0
             
             # Retour en surface
-            if t['status'] == 'underwater' and t['frames_on_surface'] >= SURFACE_THRESHOLD:
+            if t['status'] == 'underwater' and t['frames_on_surface'] >= self.surface_threshold:
                 if t['underwater_start_time']:
                     dur = frame_ts - t['underwater_start_time']
                     t['submersion_events'].append((t['underwater_start_time'], dur))
@@ -202,13 +222,14 @@ class UnderwaterPersonTracker:
         
         return assignments
     
-    def _create_new_tracks_for_unassigned(self, det_centers, assignments, frame_ts):
+    def _create_new_tracks_for_unassigned(self, det_centers, det_dims, assignments, frame_ts):
         """Crée de nouveaux tracks pour les détections non assignées"""
         for j in range(len(det_centers)):
             if j not in assignments:
                 tid = self.next_id
                 self.next_id += 1
-                self.tracks[tid] = self._init_track(det_centers[j], frame_ts)
+                w, h, conf = det_dims[j]
+                self.tracks[tid] = self._init_track(det_centers[j], frame_ts, w, h, conf)
                 assignments[j] = tid
     
     def _handle_disappeared_tracks(self, frame_ts):
@@ -223,7 +244,7 @@ class UnderwaterPersonTracker:
                 t['frames_underwater'] += 1
                 t['frames_on_surface'] = 0
                 
-                if t['frames_underwater'] >= UNDERWATER_THRESHOLD:
+                if t['frames_underwater'] >= self.underwater_threshold:
                     if t['status'] != 'underwater':
                         t['status'] = 'underwater'
                         t['underwater_start_time'] = frame_ts
@@ -234,7 +255,7 @@ class UnderwaterPersonTracker:
                     
                     if t['underwater_start_time']:
                         t['underwater_duration'] = frame_ts - t['underwater_start_time']
-                        if t['underwater_duration'] > DANGER_TIME_THRESHOLD and not t['danger_alert_sent']:
+                        if t['underwater_duration'] > self.danger_threshold and not t['danger_alert_sent']:
                             print(f"DANGER ALERT: Person {tid} underwater {t['underwater_duration']:.1f}s")
                             t['danger_alert_sent'] = True
                 
@@ -274,7 +295,7 @@ class UnderwaterPersonTracker:
         Returns:
             dict: Tracks actifs {track_id: track_data}
         """
-        return {tid: t for tid, t in self.tracks.items() if t['disappeared'] <= UNDERWATER_THRESHOLD}
+        return {tid: t for tid, t in self.tracks.items() if t['disappeared'] <= self.underwater_threshold}
     
     def get_underwater_tracks(self):
         """
@@ -299,7 +320,7 @@ class UnderwaterPersonTracker:
         return {
             tid: t for tid, t in self.tracks.items()
             if (t['status'] == 'underwater' and t['underwater_start_time']
-                and (now - t['underwater_start_time']) > DANGER_TIME_THRESHOLD)
+                and (now - t['underwater_start_time']) > self.danger_threshold)
         }
     
     def get_all_tracks(self):
