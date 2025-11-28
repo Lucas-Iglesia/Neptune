@@ -5,8 +5,13 @@ on:
     branches: ["main"]
   push:
     branches: ["dev", "main"]
+  workflow_dispatch:
+    inputs:
+      test_target:
+        description: 'Fichier ou dossier de test à lancer'
+        required: true
+        default: 'test_nwsd_conso.py'
 
-# Permissions globales : lecture/écriture pour permettre de pousser l'historique
 permissions:
   contents: write
   actions: read
@@ -58,7 +63,20 @@ jobs:
           DET_IOU_THR: "0.50"
           DET_CONF_THR: "0.25"
           DET_MIN_MAP50: "0.30"
-        run: pytest --alluredir=allure-results
+        run: |
+          # Variable pour stocker la cible (vide = tous les tests)
+          TARGET=""
+          
+          # Si c'est un déclenchement manuel, on utilise l'input fourni
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            TARGET="${{ inputs.test_target }}"
+            echo "🔵 Mode MANUEL détecté. Cible : $TARGET"
+          else
+            echo "🟢 Mode AUTO (Push/PR). Lancement de tous les tests."
+          fi
+
+          # Lancement de pytest avec la cible (ou tout si vide)
+          pytest $TARGET --alluredir=allure-results
 
       - name: Install Allure CLI
         run: |
@@ -150,7 +168,7 @@ jobs:
 
       - name: Deploy Preview to Vercel
         id: deploy_preview
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
@@ -174,33 +192,3 @@ jobs:
             --token "$VERCEL_TOKEN")"
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Production URL: $url"
-
-  # comment-url:
-  #   name: Comment preview URL on PR
-  #   needs: vercel
-  #   if: github.event_name == 'pull_request'
-  #   runs-on: ubuntu-latest
-
-  #   steps:
-  #     - name: Comment Allure Preview URL
-  #       uses: actions/github-script@v7
-  #       with:
-  #         script: |
-  #           const pr = context.payload.pull_request;
-  #           const owner = context.repo.owner;
-  #           const repo  = context.repo.repo;
-  #           const url = '${{ needs.vercel.outputs.preview_url }}' || 'N/A';
-
-  #           const marker = '<!-- allure-vercel-preview -->';
-  #           const body = `${marker}\n🔎 **Allure preview (Vercel):** ${url}\n`;
-
-  #           const { data: comments } = await github.rest.issues.listComments({
-  #             owner, repo, issue_number: pr.number, per_page: 100
-  #           });
-  #           const existing = comments.find(c => c.user?.type === 'Bot' && c.body?.includes(marker));
-
-  #           if (existing) {
-  #             await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
-  #           } else {
-  #             await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
-  #           }
