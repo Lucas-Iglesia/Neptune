@@ -1,0 +1,24 @@
+# Neptune API - Docker Compose Configuration
+
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: neptune-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./model:/app/model
+    environment:
+      - LOG_LEVEL=INFO
+      - CORS_ORIGINS=*
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
