@@ -1,10 +1,10 @@
 name: CI + Allure + Vercel
 
-on:
-  pull_request:
-    branches: ["main"]
-  push:
-    branches: ["dev", "main"]
+# on:
+#   pull_request:
+#     branches: ["main"]
+#   push:
+#     branches: ["dev", "main"]
 
 # Permissions globales : lecture/écriture pour permettre de pousser l'historique
 permissions:
