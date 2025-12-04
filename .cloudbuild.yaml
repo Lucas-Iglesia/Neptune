@@ -1,8 +1,7 @@
 options:
-  logging: CLOUD_LOGGING_ONLY
+  logging: NONE
   machineType: 'N1_HIGHCPU_8'
   timeout: '1200s'  # 20 minutes
-  defaultLogsBucketBehavior: REGIONAL_USER_OWNED_BUCKET
 
 steps:
   # Build the Docker image for the API
