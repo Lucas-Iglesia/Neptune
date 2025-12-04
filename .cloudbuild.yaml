@@ -1,5 +1,5 @@
-# Manual trigger only - configure in Cloud Build console
-# Set trigger to "Manual invocation" instead of automatic on push
+options:
+  logging: CLOUD_LOGGING_ONLY
 
 steps:
   # Build the Docker image for the API
