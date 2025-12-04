@@ -1,0 +1,40 @@
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'N1_HIGHCPU_8'
+  timeout: '1200s'  # 20 minutes
+
+steps:
+  # Build the Docker image for the API
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      [
+        'build',
+        '-t',
+        'europe-west9-docker.pkg.dev/neptune-473913/netpune-app-test/neptune-api:$SHORT_SHA',
+        '-t',
+        'europe-west9-docker.pkg.dev/neptune-473913/netpune-app-test/neptune-api:latest',
+        '-f',
+        'api/Dockerfile',
+        './api'
+      ]
+
+  # Push the image with commit SHA tag
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      [
+        'push',
+        'europe-west9-docker.pkg.dev/neptune-473913/netpune-app-test/neptune-api:$SHORT_SHA'
+      ]
+
+  # Push the image with latest tag
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      [
+        'push',
+        'europe-west9-docker.pkg.dev/neptune-473913/netpune-app-test/neptune-api:latest'
+      ]
+
+# List of images to be pushed to the registry
+images:
+  - 'europe-west9-docker.pkg.dev/neptune-473913/netpune-app-test/neptune-api:$SHORT_SHA'
+  - 'europe-west9-docker.pkg.dev/neptune-473913/netpune-app-test/neptune-api:latest'
